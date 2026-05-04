@@ -40,6 +40,10 @@ function rowToBanner(row: BannerRow): Banner {
 // ── writeAuditLog ─────────────────────────────────────────────────────────────
 // Written BEFORE the mutation it describes — required by Security Standards.
 // If the audit write fails, we throw and abort the mutation.
+//
+// WHY cast changes: supabase-js 2.45+ tightens Insert types via the
+// Relationships field. Our tuple [unknown, unknown] is valid JSON but needs
+// an explicit cast to satisfy the narrowed Record<string, unknown> column type.
 async function writeAuditLog(
   bannerId: string,
   action: AuditLog['action'],
@@ -48,7 +52,11 @@ async function writeAuditLog(
   const db = getDb();
   const { error } = await db
     .from('banner_audit_logs')
-    .insert({ banner_id: bannerId, action, changes });
+    .insert({
+      banner_id: bannerId,
+      action,
+      changes: changes as Record<string, unknown>,
+    });
 
   if (error) {
     throw new Error(`[bannerService] Audit log write failed: ${error.message}`);
@@ -156,8 +164,8 @@ export async function updateBanner(id: string, input: UpdateBannerInput): Promis
     changes['bannerStyles'] = [current.bannerStyles, input.bannerStyles];
   }
   if (input.buttonConfig !== undefined) changes['buttonConfig'] = [current.buttonConfig, input.buttonConfig];
-  if (input.imageAssets !== undefined)  changes['imageAssets']  = [current.imageAssets,  input.imageAssets];
-  if (input.jsTrigger !== undefined)    changes['jsTrigger']    = [current.jsTrigger,    input.jsTrigger];
+  if (input.imageAssets  !== undefined) changes['imageAssets']  = [current.imageAssets,  input.imageAssets];
+  if (input.jsTrigger    !== undefined) changes['jsTrigger']    = [current.jsTrigger,    input.jsTrigger];
 
   // ⚠️ AUDIT BEFORE MUTATION — required by security model
   await writeAuditLog(id, 'updated', changes);
@@ -169,15 +177,15 @@ export async function updateBanner(id: string, input: UpdateBannerInput): Promis
   const { data, error } = await db
     .from('banners')
     .update({
-      ...(slug                    && { slug }),
-      ...(input.name              && { name: input.name }),
-      ...(input.bannerStyles   !== undefined && { banner_styles:    input.bannerStyles }),
-      ...(input.buttonConfig   !== undefined && { button_config:    input.buttonConfig as Record<string, unknown> }),
-      ...(input.imageAssets    !== undefined && { image_assets:     input.imageAssets as Record<string, unknown> }),
-      ...(input.jsTrigger      !== undefined && { js_trigger:       input.jsTrigger }),
+      ...(slug                     && { slug }),
+      ...(input.name               && { name: input.name }),
+      ...(input.bannerStyles    !== undefined && { banner_styles:    input.bannerStyles }),
+      ...(input.buttonConfig    !== undefined && { button_config:    input.buttonConfig as Record<string, unknown> }),
+      ...(input.imageAssets     !== undefined && { image_assets:     input.imageAssets as Record<string, unknown> }),
+      ...(input.jsTrigger       !== undefined && { js_trigger:       input.jsTrigger }),
       ...(input.countdownConfig !== undefined && { countdown_config: input.countdownConfig as Record<string, unknown> }),
-      ...(input.sliderConfig   !== undefined && { slider_config:    input.sliderConfig as Record<string, unknown> }),
-      ...(input.allowedDomains !== undefined && { allowed_domains:  input.allowedDomains }),
+      ...(input.sliderConfig    !== undefined && { slider_config:    input.sliderConfig as Record<string, unknown> }),
+      ...(input.allowedDomains  !== undefined && { allowed_domains:  input.allowedDomains }),
     })
     .eq('id', id)
     .select()

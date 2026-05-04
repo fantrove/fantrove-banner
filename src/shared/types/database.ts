@@ -24,20 +24,34 @@ export interface Database {
           published_at:     string | null;
         };
         Insert: {
-          id?:              string;
-          slug:             string;
-          name:             string;
-          banner_styles?:   string | null;
-          button_config?:   Record<string, unknown> | null;
-          image_assets?:    Record<string, unknown> | null;
-          js_trigger?:      string | null;
+          id?:               string;
+          slug:              string;
+          name:              string;
+          banner_styles?:    string | null;
+          button_config?:    Record<string, unknown> | null;
+          image_assets?:     Record<string, unknown> | null;
+          js_trigger?:       string | null;
           countdown_config?: Record<string, unknown> | null;
-          slider_config?:   Record<string, unknown> | null;
-          is_published?:    boolean;
-          allowed_domains?: string[];
-          published_at?:    string | null;
+          slider_config?:    Record<string, unknown> | null;
+          is_published?:     boolean;
+          allowed_domains?:  string[];
+          published_at?:     string | null;
         };
-        Update: Partial<Database['public']['Tables']['banners']['Insert']>;
+        Update: {
+          id?:               string;
+          slug?:             string;
+          name?:             string;
+          banner_styles?:    string | null;
+          button_config?:    Record<string, unknown> | null;
+          image_assets?:     Record<string, unknown> | null;
+          js_trigger?:       string | null;
+          countdown_config?: Record<string, unknown> | null;
+          slider_config?:    Record<string, unknown> | null;
+          is_published?:     boolean;
+          allowed_domains?:  string[];
+          published_at?:     string | null;
+        };
+        Relationships: [];
       };
       banner_audit_logs: {
         Row: {
@@ -53,11 +67,18 @@ export interface Database {
           action:     string;
           changes?:   Record<string, unknown> | null;
         };
-        Update: never;  // Audit logs are immutable
+        Update: {
+          id?:        string;
+          banner_id?: string | null;
+          action?:    string;
+          changes?:   Record<string, unknown> | null;
+        };
+        Relationships: [];
       };
     };
-    Views:    Record<string, never>;
-    Functions: Record<string, never>;
-    Enums:    Record<string, never>;
+    Views:          Record<string, never>;
+    Functions:      Record<string, never>;
+    Enums:          Record<string, never>;
+    CompositeTypes: Record<string, never>;
   };
 }

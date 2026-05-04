@@ -6,13 +6,20 @@
 // Used by: assets/js/banner-engine.js on Fantrove
 
 import { NextRequest, NextResponse }  from 'next/server';
-import { getBannerBySlug }             from '@/features/banner-editor/services/bannerService';
+import { getDb }                       from '@/shared/lib/db';
 import type { ApiResponse }            from '@/shared/types/banner';
-import type { BannerPublicPayload }    from '@/shared/types/banner';
+import type {
+  BannerPublicPayload,
+  ButtonConfig,
+  ImageAssets,
+  JsTriggerPreset,
+  CountdownConfig,
+  SliderConfig,
+}                                      from '@/shared/types/banner';
 
 // ── extractOriginHost ─────────────────────────────────────────────────────────
 // Extracts the hostname from the Origin (or Referer) header.
-// Returns null if the header is absent or unparseable.
+// Returns null if the header is absent or unparseable (server-side SSR calls).
 function extractOriginHost(req: NextRequest): string | null {
   const origin = req.headers.get('origin') ?? req.headers.get('referer');
   if (!origin) return null;
@@ -25,14 +32,14 @@ function extractOriginHost(req: NextRequest): string | null {
 
 // ── isDomainAllowed ────────────────────────────────────────────────────────────
 // Supports exact matches and wildcard subdomains (*.example.com).
-// WHY: banner-engine.js on any subdomain of fantrove.com must work.
-function isDomainAllowed(host: string, allowedDomains: string[]): boolean {
-  // Server-side calls (no Origin header) are allowed — used by Fantrove's SSR
-  if (!host) return true;
+// A null host means a server-side / curl request — allowed by default.
+// An empty allowedDomains list means unrestricted (open banner).
+function isDomainAllowed(host: string | null, allowedDomains: string[]): boolean {
+  if (!host)                       return true;  // server-side SSR calls
+  if (allowedDomains.length === 0) return true;  // no restriction configured
 
   return allowedDomains.some(pattern => {
     if (pattern === host) return true;
-    // Wildcard: *.example.com matches sub.example.com
     if (pattern.startsWith('*.')) {
       const base = pattern.slice(2);
       return host === base || host.endsWith(`.${base}`);
@@ -61,46 +68,60 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ) {
-  const { slug } = await params;
+  const { slug }   = await params;
   const originHost = extractOriginHost(req);
+  const origin     = req.headers.get('origin');
 
   try {
-    // 1. Fetch banner (only published banners are returned)
-    const banner = await getBannerBySlug(slug);
+    // Single query — fetches the full row so we can run the domain check
+    // server-side before returning the public-safe payload.
+    // WHY not use getBannerBySlug: that returns BannerPublicPayload which
+    // intentionally omits allowedDomains. We need it here for the whitelist
+    // check, but must never expose it in the response.
+    const db = getDb();
+    const { data, error } = await db
+      .from('banners')
+      .select('*')
+      .eq('slug', slug)
+      .eq('is_published', true)
+      .single();
 
-    if (!banner) {
+    if (error?.code === 'PGRST116' || !data) {
       return NextResponse.json<ApiResponse<never>>(
         { ok: false, error: 'Banner not found' },
         {
           status:  404,
-          headers: { ...corsHeaders(req.headers.get('origin')), 'Cache-Control': 'no-store' },
+          headers: { ...corsHeaders(origin), 'Cache-Control': 'no-store' },
         }
       );
     }
 
-    // 2. Domain whitelist validation
-    // WHY: prevents unauthorized sites from piggy-backing on our banners.
-    // We must fetch the full record to get allowedDomains — done via service.
-    // getBannerBySlug already validates is_published; for domain check we need
-    // allowedDomains which isn't in BannerPublicPayload. Re-query would be
-    // expensive; we store allowedDomains separately from the public payload.
-    //
-    // IMPLEMENTATION NOTE: getBannerBySlug returns BannerPublicPayload (no
-    // allowedDomains). We perform the domain check here using a separate
-    // lightweight field. See the extended version below.
-    //
-    // For now: if originHost is non-null, check against a server-only query.
-    // In production, extend bannerService to return allowedDomains in a
-    // server-only variant of the payload — not exposed to clients.
-    //
-    // Simple implementation: always serve if published (domain check via
-    // Supabase RLS + CDN rules in production). Expand as needed.
+    if (error) throw new Error(error.message);
 
-    // 3. Build response with cache headers
-    // Cache-Control: stale-while-revalidate matches PDF Data Model spec
-    const origin = req.headers.get('origin');
+    // ── Domain whitelist check ────────────────────────────────────────────
+    if (!isDomainAllowed(originHost, data.allowed_domains ?? [])) {
+      return NextResponse.json<ApiResponse<never>>(
+        { ok: false, error: 'Domain not allowed' },
+        {
+          status:  403,
+          headers: { ...corsHeaders(origin), 'Cache-Control': 'no-store' },
+        }
+      );
+    }
+
+    // ── Build public payload — no id, name, allowedDomains exposed ────────
+    const payload: BannerPublicPayload = {
+      slug:            data.slug,
+      bannerStyles:    data.banner_styles ?? '',
+      buttonConfig:    (data.button_config    as ButtonConfig)    ?? null,
+      imageAssets:     (data.image_assets     as ImageAssets)     ?? null,
+      jsTrigger:       (data.js_trigger       as JsTriggerPreset) ?? null,
+      countdownConfig: (data.countdown_config as CountdownConfig) ?? null,
+      sliderConfig:    (data.slider_config    as SliderConfig)    ?? null,
+    };
+
     return NextResponse.json<ApiResponse<BannerPublicPayload>>(
-      { ok: true, data: banner },
+      { ok: true, data: payload },
       {
         status:  200,
         headers: {
@@ -115,7 +136,7 @@ export async function GET(
     console.error('[api/public/banners GET]', message);
     return NextResponse.json<ApiResponse<never>>(
       { ok: false, error: 'Internal error' },
-      { status: 500, headers: corsHeaders(req.headers.get('origin')) }
+      { status: 500, headers: corsHeaders(origin) }
     );
   }
 }

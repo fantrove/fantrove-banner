@@ -14,19 +14,24 @@ import { env } from '../lib/env';
 //
 // Fix: widen the constraint to `Record<string, string | string[]>` — the union
 // that Next.js itself uses for catch-all routes — so all concrete param shapes
-// are assignable. Route files remain unchanged.
+// are assignable. Also make the `ctx` parameter optional so handlers that only
+// accept `req` (common for list endpoints) remain compatible.
 
 type RouteContext<P extends Record<string, string | string[]>> = {
   params: Promise<P>;
 };
 
+// NOTE: ctx is optional so we accept both handler signatures:
+//  - (req) => Promise<NextResponse>
+//  - (req, ctx) => Promise<NextResponse>
 type RouteHandler<P extends Record<string, string | string[]>> = (
   req: NextRequest,
-  ctx: RouteContext<P>
+  ctx?: RouteContext<P>
 ) => Promise<NextResponse>;
 
+// Default P allows string or string[] to match Next.js runtime shapes
 export function withAuth<
-  P extends Record<string, string | string[]> = Record<string, string>
+  P extends Record<string, string | string[]> = Record<string, string | string[]>
 >(handler: RouteHandler<P>): RouteHandler<P> {
   return async (req, ctx) => {
     const authHeader = req.headers.get('authorization') ?? '';
@@ -41,6 +46,7 @@ export function withAuth<
       );
     }
 
+    // Pass through the same ctx received from Next runtime (may be undefined)
     return handler(req, ctx);
   };
 }

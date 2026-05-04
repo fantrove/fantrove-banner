@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getBannerById, getAuditLogs } from '@/features/banner-editor/services/bannerService';
 
-interface Props { params: { id: string } }
+interface Props { params: Promise < { id: string } > }
 
 const ACTION_COLOURS: Record < string, string > = {
   created: 'audit-action--created',
@@ -17,9 +17,10 @@ const ACTION_COLOURS: Record < string, string > = {
 };
 
 export default async function AuditPage({ params }: Props) {
+  const { id } = await params;
   const [banner, logs] = await Promise.all([
-    getBannerById(params.id).catch(() => null),
-    getAuditLogs(params.id).catch(() => []),
+    getBannerById(id).catch(() => null),
+    getAuditLogs(id).catch(() => []),
   ]);
   
   if (!banner) notFound();
@@ -28,7 +29,7 @@ export default async function AuditPage({ params }: Props) {
     <main className="page-root">
       <div className="page-header">
         <div>
-          <Link href={`/banners/${params.id}`} className="link-muted">← Back to editor</Link>
+          <Link href={`/banners/${id}`} className="link-muted">← Back to editor</Link>
           <h1 className="page-title">Audit Log — {banner.name}</h1>
         </div>
       </div>

@@ -8,13 +8,14 @@ import { getBannerById } from '@/features/banner-editor/services/bannerService';
 import { BannerEditorClient } from './BannerEditorClient';
 
 interface Props {
-  params: { id: string };
+  params: Promise < { id: string } > ;
 }
 
 export default async function EditBannerPage({ params }: Props) {
+  const { id } = await params;
   let banner;
   try {
-    banner = await getBannerById(params.id);
+    banner = await getBannerById(id);
   } catch {
     banner = null;
   }

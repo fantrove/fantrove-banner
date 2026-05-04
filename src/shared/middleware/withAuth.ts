@@ -7,7 +7,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { env } from '../lib/env';
 
-type RouteHandler = (req: NextRequest, ctx: { params: Record<string, string> }) => Promise<NextResponse>;
+type RouteHandler = (
+  req: NextRequest,
+  ctx: { params: Promise<Record<string, string>> }
+) => Promise<NextResponse>;
 
 // ── withAuth ─────────────────────────────────────────────────────────────────
 // HOC: validates Authorization: Bearer <secret> header.

@@ -59,13 +59,14 @@ export async function OPTIONS(req: NextRequest) {
 // GET /api/public/banners/[slug]
 export async function GET(
   req: NextRequest,
-  { params }: { params: { slug: string } }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
+  const { slug } = await params;
   const originHost = extractOriginHost(req);
 
   try {
     // 1. Fetch banner (only published banners are returned)
-    const banner = await getBannerBySlug(params.slug);
+    const banner = await getBannerBySlug(slug);
 
     if (!banner) {
       return NextResponse.json<ApiResponse<never>>(

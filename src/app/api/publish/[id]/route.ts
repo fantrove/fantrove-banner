@@ -9,12 +9,13 @@ import { withAuth } from '@/shared/middleware/withAuth';
 import { publishBanner, unpublishBanner } from '@/features/banner-editor/services/bannerService';
 import type { ApiResponse } from '@/shared/types/banner';
 
-type Ctx = { params: { id: string } };
+type Ctx = { params: Promise < { id: string } > };
 
 // POST /api/publish/[id] → publish
 export const POST = withAuth(async (_req: NextRequest, { params }: Ctx) => {
   try {
-    const banner = await publishBanner(params.id);
+    const { id } = await params;
+    const banner = await publishBanner(id);
     return NextResponse.json < ApiResponse < typeof banner >> ({ ok: true, data: banner });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal error';
@@ -26,7 +27,8 @@ export const POST = withAuth(async (_req: NextRequest, { params }: Ctx) => {
 // DELETE /api/publish/[id] → unpublish
 export const DELETE = withAuth(async (_req: NextRequest, { params }: Ctx) => {
   try {
-    const banner = await unpublishBanner(params.id);
+    const { id } = await params;
+    const banner = await unpublishBanner(id);
     return NextResponse.json < ApiResponse < typeof banner >> ({ ok: true, data: banner });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal error';

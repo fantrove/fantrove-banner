@@ -8,12 +8,13 @@ import { withAuth }                                       from '@/shared/middlew
 import { getBannerById, updateBanner, deleteBanner }     from '@/features/banner-editor/services/bannerService';
 import type { UpdateBannerInput, ApiResponse }            from '@/shared/types/banner';
 
-type Ctx = { params: { id: string } };
+type Ctx = { params: Promise<{ id: string }> };
 
 // GET /api/banners/[id]
 export const GET = withAuth(async (_req: NextRequest, { params }: Ctx) => {
   try {
-    const banner = await getBannerById(params.id);
+    const { id } = await params;
+    const banner = await getBannerById(id);
     if (!banner) {
       return NextResponse.json<ApiResponse<never>>(
         { ok: false, error: 'Banner not found' },
@@ -30,6 +31,7 @@ export const GET = withAuth(async (_req: NextRequest, { params }: Ctx) => {
 // PATCH /api/banners/[id]
 export const PATCH = withAuth(async (req: NextRequest, { params }: Ctx) => {
   try {
+    const { id } = await params;
     const body: unknown = await req.json().catch(() => null);
     if (!body || typeof body !== 'object') {
       return NextResponse.json<ApiResponse<never>>(
@@ -38,7 +40,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params }: Ctx) => {
       );
     }
 
-    const updated = await updateBanner(params.id, body as UpdateBannerInput);
+    const updated = await updateBanner(id, body as UpdateBannerInput);
     return NextResponse.json<ApiResponse<typeof updated>>({ ok: true, data: updated });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal error';
@@ -50,7 +52,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params }: Ctx) => {
 // ⚠️ DESTRUCTIVE ZONE: permanent delete — UI must confirm before calling
 export const DELETE = withAuth(async (req: NextRequest, { params }: Ctx) => {
   try {
-    // API-level confirmation check — independent of UI (security requirement)
+    const { id } = await params;
     const body = await req.json().catch(() => ({})) as Record<string, unknown>;
     if (body.confirmedDeletion !== true) {
       return NextResponse.json<ApiResponse<never>>(
@@ -59,7 +61,7 @@ export const DELETE = withAuth(async (req: NextRequest, { params }: Ctx) => {
       );
     }
 
-    await deleteBanner(params.id);
+    await deleteBanner(id);
     return NextResponse.json<ApiResponse<null>>({ ok: true, data: null });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal error';

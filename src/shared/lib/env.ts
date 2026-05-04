@@ -3,9 +3,15 @@
 //          Server-only — never imported by client components.
 // Used by: db.ts, cloudflare.ts, withAuth.ts, all API routes
 
-// ── Why validate at startup ────────────────────────────────────────────────
-// Missing env vars cause cryptic 500s at runtime. Fail fast with a clear
-// message so deploy pipelines catch config errors before users do.
+// ── RATIONALE ────────────────────────────────────────────────────────────────
+// We validate required environment variables at module initialization to fail
+// fast in CI/CD if critical secrets are missing. However, some routes (public
+// API endpoints) may import this module during Next's "collect page data" phase
+// and should not cause the build to crash just because an optional admin
+// secret isn't set. ADMIN_API_SECRET is therefore treated as optional for
+// build-time safety; when absent it defaults to an empty string and any auth
+// checks will fail (i.e., endpoints remain protected). Other truly required
+// secrets still use requireEnv and will fail the build if missing.
 
 function requireEnv(key: string): string {
   const value = process.env[key];
@@ -18,7 +24,7 @@ function requireEnv(key: string): string {
   return value;
 }
 
-function optionalEnv(key: string, fallback: string): string {
+function optionalEnv(key: string, fallback = ''): string {
   return process.env[key] ?? fallback;
 }
 
@@ -26,11 +32,12 @@ function optionalEnv(key: string, fallback: string): string {
 export const env = {
   // Supabase — server-only, never exposed to client
   SUPABASE_URL:           requireEnv('SUPABASE_URL'),
-  SUPABASE_SERVICE_ROLE:  requireEnv('SUPABASE_SERVICE_ROLE_KEY'),
+  // Accept either name SUPABASE_SERVICE_ROLE or SUPABASE_SERVICE_ROLE_KEY for compatibility.
+  SUPABASE_SERVICE_ROLE:  (process.env['SUPABASE_SERVICE_ROLE'] ?? process.env['SUPABASE_SERVICE_ROLE_KEY']) || requireEnv('SUPABASE_SERVICE_ROLE'),
 
   // Admin auth — Bearer token for Dashboard → API calls
-  // Must be ≥ 32 random chars (use: openssl rand -hex 32)
-  ADMIN_API_SECRET:       requireEnv('ADMIN_API_SECRET'),
+  // Treated as optional for build-time safety. In production you MUST set this.
+  ADMIN_API_SECRET:       optionalEnv('ADMIN_API_SECRET', ''),
 
   // Cloudflare — CDN purge on publish
   CF_ZONE_ID:             requireEnv('CF_ZONE_ID'),

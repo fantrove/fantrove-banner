@@ -13,14 +13,17 @@ interface PurgeResult {
   error ? : string;
 }
 
-// ── purgeBannerCache ─────────────────────────────────────────────────────────
-// Sends a cache-purge request for the specific banner's public API URL.
-// Called immediately after marking a banner as published in Supabase.
-//
-// WHY purge by URL (not tag): Cloudflare Pages plan may not support cache tags.
-// URL purge is universally available and precise for our use case.
 export async function purgeBannerCache(slug: string): Promise < PurgeResult > {
   const urlToPurge = `${PUBLIC_API_BASE}/${slug}`;
+  
+  // If credentials missing, log and return non-fatal result.
+  if (!env.CF_ZONE_ID || !env.CF_API_TOKEN) {
+    console.warn(
+      '[cloudflare] purgeBannerCache skipped: CF_ZONE_ID or CF_API_TOKEN not configured. ' +
+      'Publish will proceed but CDN purge will not run.'
+    );
+    return { ok: false, error: 'missing-credentials' };
+  }
   
   try {
     const res = await fetch(
@@ -43,7 +46,7 @@ export async function purgeBannerCache(slug: string): Promise < PurgeResult > {
     return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    // Non-fatal: log and continue — the banner is published, CDN lag is acceptable
+    // Non-fatal: log and continue — the banner is published, CDN will refresh on next request
     console.error('[cloudflare] purgeBannerCache error:', message);
     return { ok: false, error: message };
   }

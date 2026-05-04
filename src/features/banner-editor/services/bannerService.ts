@@ -16,6 +16,17 @@ import type { Database } from '@/shared/types/database';
 
 type BannerRow = Database['public']['Tables']['banners']['Row'];
 
+// ── toJsonb ───────────────────────────────────────────────────────────────────
+// Safely converts a typed interface to the JSONB-compatible type Supabase
+// expects. TypeScript 5.5+ strict mode forbids direct `as Record<string,unknown>`
+// on interfaces without index signatures — double assertion is the correct fix.
+// WHY not JSON.parse(JSON.stringify(…)): avoids runtime overhead; we trust the
+// types are JSON-serializable by construction (no Date, Map, Set, etc.).
+function toJsonb(val: unknown): Record<string, unknown> | null {
+  if (val == null) return null;
+  return val as unknown as Record<string, unknown>;
+}
+
 // ── Row → Domain type ─────────────────────────────────────────────────────────
 // Raw DB rows never leave this file. All callers receive Banner domain objects.
 function rowToBanner(row: BannerRow): Banner {
@@ -40,10 +51,6 @@ function rowToBanner(row: BannerRow): Banner {
 // ── writeAuditLog ─────────────────────────────────────────────────────────────
 // Written BEFORE the mutation it describes — required by Security Standards.
 // If the audit write fails, we throw and abort the mutation.
-//
-// WHY cast changes: supabase-js 2.45+ tightens Insert types via the
-// Relationships field. Our tuple [unknown, unknown] is valid JSON but needs
-// an explicit cast to satisfy the narrowed Record<string, unknown> column type.
 async function writeAuditLog(
   bannerId: string,
   action: AuditLog['action'],
@@ -55,6 +62,7 @@ async function writeAuditLog(
     .insert({
       banner_id: bannerId,
       action,
+      // [unknown, unknown] is assignable to unknown — single cast is sufficient here
       changes: changes as Record<string, unknown>,
     });
 
@@ -131,11 +139,14 @@ export async function createBanner(input: CreateBannerInput): Promise<Banner> {
       slug,
       name:             input.name,
       banner_styles:    input.bannerStyles ?? '',
-      button_config:    (input.buttonConfig as Record<string, unknown>) ?? null,
-      image_assets:     (input.imageAssets as Record<string, unknown>) ?? null,
+      // toJsonb() resolves TS5.5+ strict-mode: interfaces lack index signatures,
+      // so direct `as Record<string,unknown>` is rejected. Double assertion via
+      // toJsonb is the correct pattern — Supabase stores these as JSONB anyway.
+      button_config:    toJsonb(input.buttonConfig),
+      image_assets:     toJsonb(input.imageAssets),
       js_trigger:       input.jsTrigger ?? null,
-      countdown_config: (input.countdownConfig as Record<string, unknown>) ?? null,
-      slider_config:    (input.sliderConfig as Record<string, unknown>) ?? null,
+      countdown_config: toJsonb(input.countdownConfig),
+      slider_config:    toJsonb(input.sliderConfig),
       allowed_domains:  input.allowedDomains ?? [],
     })
     .select()
@@ -163,9 +174,11 @@ export async function updateBanner(id: string, input: UpdateBannerInput): Promis
   if (input.bannerStyles !== undefined && input.bannerStyles !== current.bannerStyles) {
     changes['bannerStyles'] = [current.bannerStyles, input.bannerStyles];
   }
-  if (input.buttonConfig !== undefined) changes['buttonConfig'] = [current.buttonConfig, input.buttonConfig];
-  if (input.imageAssets  !== undefined) changes['imageAssets']  = [current.imageAssets,  input.imageAssets];
-  if (input.jsTrigger    !== undefined) changes['jsTrigger']    = [current.jsTrigger,    input.jsTrigger];
+  if (input.buttonConfig    !== undefined) changes['buttonConfig']    = [current.buttonConfig,    input.buttonConfig];
+  if (input.imageAssets     !== undefined) changes['imageAssets']     = [current.imageAssets,     input.imageAssets];
+  if (input.jsTrigger       !== undefined) changes['jsTrigger']       = [current.jsTrigger,       input.jsTrigger];
+  if (input.countdownConfig !== undefined) changes['countdownConfig'] = [current.countdownConfig, input.countdownConfig];
+  if (input.sliderConfig    !== undefined) changes['sliderConfig']    = [current.sliderConfig,    input.sliderConfig];
 
   // ⚠️ AUDIT BEFORE MUTATION — required by security model
   await writeAuditLog(id, 'updated', changes);
@@ -177,14 +190,15 @@ export async function updateBanner(id: string, input: UpdateBannerInput): Promis
   const { data, error } = await db
     .from('banners')
     .update({
-      ...(slug                     && { slug }),
-      ...(input.name               && { name: input.name }),
+      ...(slug                      && { slug }),
+      ...(input.name                && { name: input.name }),
       ...(input.bannerStyles    !== undefined && { banner_styles:    input.bannerStyles }),
-      ...(input.buttonConfig    !== undefined && { button_config:    input.buttonConfig as Record<string, unknown> }),
-      ...(input.imageAssets     !== undefined && { image_assets:     input.imageAssets as Record<string, unknown> }),
+      // toJsonb() handles null (to clear a field) and typed interfaces alike
+      ...(input.buttonConfig    !== undefined && { button_config:    toJsonb(input.buttonConfig) }),
+      ...(input.imageAssets     !== undefined && { image_assets:     toJsonb(input.imageAssets) }),
       ...(input.jsTrigger       !== undefined && { js_trigger:       input.jsTrigger }),
-      ...(input.countdownConfig !== undefined && { countdown_config: input.countdownConfig as Record<string, unknown> }),
-      ...(input.sliderConfig    !== undefined && { slider_config:    input.sliderConfig as Record<string, unknown> }),
+      ...(input.countdownConfig !== undefined && { countdown_config: toJsonb(input.countdownConfig) }),
+      ...(input.sliderConfig    !== undefined && { slider_config:    toJsonb(input.sliderConfig) }),
       ...(input.allowedDomains  !== undefined && { allowed_domains:  input.allowedDomains }),
     })
     .eq('id', id)

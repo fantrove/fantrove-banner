@@ -3,17 +3,32 @@
 //          Never imported by client components or edge runtime without care.
 // Used by: bannerService.ts, all API routes
 
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { env } from './env';
 import type { Database } from '../types/database';
 
-// Singleton pattern — one client for the process lifetime.
-// createClient is lightweight but we avoid repeated instantiation.
-let _client: ReturnType < typeof createClient < Database >> | null = null;
+// ── Why globalThis instead of module-level variable ───────────────────────────
+// Next.js 15 dev mode uses hot module replacement (HMR). Each HMR cycle
+// re-executes module-level code, creating a new Supabase client and leaking
+// the old one. globalThis persists across HMR cycles in the same Node process,
+// so we reuse the same client instance. In production builds (no HMR) this
+// has zero behavioral difference — it's a dev-mode correctness fix.
+// Pattern: https://www.prisma.io/docs/guides/nextjs — same technique for Prisma.
 
-export function getDb() {
-  if (!_client) {
-    _client = createClient < Database > (
+// WHY direct import instead of ReturnType<typeof createClient<Database>>:
+// TypeScript parses `typeof createClient<Database>` ambiguously — the angle
+// bracket can be read as a comparison operator, causing a syntax error in
+// strict mode. Importing SupabaseClient<Database> directly is unambiguous.
+type TypedSupabaseClient = SupabaseClient < Database > ;
+
+// Augment globalThis with our typed key so TypeScript doesn't complain
+const g = globalThis as typeof globalThis & {
+  __supabaseServiceClient ? : TypedSupabaseClient;
+};
+
+export function getDb(): TypedSupabaseClient {
+  if (!g.__supabaseServiceClient) {
+    g.__supabaseServiceClient = createClient < Database > (
       env.SUPABASE_URL,
       env.SUPABASE_SERVICE_ROLE, // Service role bypasses RLS — only used server-side
       {
@@ -24,5 +39,5 @@ export function getDb() {
       }
     );
   }
-  return _client;
+  return g.__supabaseServiceClient;
 }

@@ -10,8 +10,8 @@ import type { CreateBannerInput }             from '@/shared/types/banner';
 import type { ApiResponse }                   from '@/shared/types/banner';
 
 // GET /api/banners — list all banners
-// NOTE: include the unused _ctx param so the handler shape matches RouteHandler<>
-export const GET = withAuth(async (_req: NextRequest, _ctx?: { params: Promise<Record<string, string | string[]>> }) => {
+// Keep handler signature as (req) — list endpoint doesn't need ctx
+export const GET = withAuth(async (_req: NextRequest) => {
   try {
     const banners = await listBanners();
     return NextResponse.json<ApiResponse<typeof banners>>({ ok: true, data: banners });

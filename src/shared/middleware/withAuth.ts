@@ -12,28 +12,30 @@ import { env } from '../lib/env';
 // caused "Type X is not assignable to type Y" errors in strict mode when the
 // route file passed a concrete `{ id: string }` promise type.
 //
-// Fix: widen the constraint to `Record<string, string | string[]>` — the union
-// that Next.js itself uses for catch-all routes — so all concrete param shapes
-// are assignable. Also make the `ctx` parameter optional so handlers that only
-// accept `req` (common for list endpoints) remain compatible.
+// Fix: provide two overloads of withAuth so we preserve the exact handler
+// signature shape: handlers that only accept (req) produce exported functions
+// that only accept (req), and handlers that accept (req, ctx) produce exported
+// functions that require (req, ctx). This satisfies Next's strict type checks.
 
 type RouteContext<P extends Record<string, string | string[]>> = {
   params: Promise<P>;
 };
 
-// NOTE: ctx is optional so we accept both handler signatures:
-//  - (req) => Promise<NextResponse>
-//  - (req, ctx) => Promise<NextResponse>
-type RouteHandler<P extends Record<string, string | string[]>> = (
+type HandlerNoCtx = (req: NextRequest) => Promise<NextResponse>;
+type HandlerWithCtx<P extends Record<string, string | string[]>> = (
   req: NextRequest,
-  ctx?: RouteContext<P>
+  ctx: RouteContext<P>
 ) => Promise<NextResponse>;
 
-// Default P allows string or string[] to match Next.js runtime shapes
-export function withAuth<
-  P extends Record<string, string | string[]> = Record<string, string | string[]>
->(handler: RouteHandler<P>): RouteHandler<P> {
-  return async (req, ctx) => {
+/* Overload signatures */
+export function withAuth(handler: HandlerNoCtx): HandlerNoCtx;
+export function withAuth<P extends Record<string, string | string[]>>(
+  handler: HandlerWithCtx<P>
+): HandlerWithCtx<P>;
+
+/* Implementation */
+export function withAuth(handler: HandlerNoCtx | HandlerWithCtx<any>) {
+  return async (req: NextRequest, ctx?: RouteContext<Record<string, string | string[]>>) => {
     const authHeader = req.headers.get('authorization') ?? '';
     const token = authHeader.startsWith('Bearer ')
       ? authHeader.slice(7).trim()
@@ -46,7 +48,19 @@ export function withAuth<
       );
     }
 
-    // Pass through the same ctx received from Next runtime (may be undefined)
-    return handler(req, ctx);
+    // Call the original handler with or without ctx depending on its arity.
+    // Using handler.length is safe enough here to detect declared param count.
+    // If handler expects two args, pass ctx (must be provided by Next runtime).
+    try {
+      if ((handler as any).length >= 2) {
+        // cast to any to call with ctx — at runtime ctx should exist for route files that require it
+        return (handler as HandlerWithCtx<any>)(req, ctx as RouteContext<any>);
+      } else {
+        return (handler as HandlerNoCtx)(req);
+      }
+    } catch (err) {
+      // Bubble up runtime errors so calling route can handle and return proper response.
+      throw err;
+    }
   };
 }

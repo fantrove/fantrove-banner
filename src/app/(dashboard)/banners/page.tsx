@@ -5,6 +5,7 @@
 
 import Link                   from 'next/link';
 import { listBanners }        from '@/features/banner-editor/services/bannerService';
+import type { Banner }        from '@/shared/types/banner';
 
 export const dynamic = 'force-dynamic'; // Never cache the list in production
 
@@ -16,7 +17,7 @@ function formatDate(iso: string): string {
 }
 
 export default async function BannersPage() {
-  let banners = [];
+  let banners: Banner[] = [];
   let fetchError: string | null = null;
 
   try {

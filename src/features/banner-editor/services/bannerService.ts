@@ -24,14 +24,17 @@ function toJsonbArray(val: unknown): Record<string, unknown>[] | null {
 }
 
 // ── Row → Domain type ─────────────────────────────────────────────────────────
+// WHY cast through unknown: Supabase returns JSONB columns as Record<string,unknown>[].
+// TypeScript won't allow a direct cast to ContentBlock[] (no overlap).
+// The double-cast (as unknown as T) is the correct pattern for JSONB → typed interface.
 function rowToBanner(row: BannerRow): Banner {
   return {
     id:              row.id,
     slug:            row.slug,
     name:            row.name,
     bannerStyles:    row.banner_styles ?? '',
-    content:         (row.content as Banner['content']) ?? [],
-    buttons:         (row.buttons as Banner['buttons']) ?? [],
+    content:         (row.content as unknown as Banner['content']) ?? [],
+    buttons:         (row.buttons as unknown as Banner['buttons']) ?? [],
     buttonConfig:    (row.button_config as Banner['buttonConfig']) ?? null,
     imageAssets:     (row.image_assets as Banner['imageAssets']) ?? null,
     jsTrigger:       (row.js_trigger as Banner['jsTrigger']) ?? null,

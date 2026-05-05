@@ -1,21 +1,16 @@
 // Path:    src/features/banner-editor/hooks/useBannerEditor.ts
-// Purpose: Manages all editor state — draft changes, save/publish actions,
-//          loading and error states. Decouples UI from API calls.
-// Used by: BannerEditor component, new/page.tsx, [id]/page.tsx
+// Purpose: Manages all editor state — draft changes, save/publish actions.
+//          v2: content blocks + multiple buttons.
 
 'use client';
 
 import { useState, useCallback } from 'react';
 import type {
   Banner, CreateBannerInput, UpdateBannerInput,
-  ButtonConfig, ImageAssets, CountdownConfig,
-  SliderConfig, JsTriggerPreset,
+  ButtonConfig, ContentBlock, ImageAssets,
+  CountdownConfig, SliderConfig, JsTriggerPreset,
 } from '@/shared/types/banner';
 
-// ── Admin API fetch helper ────────────────────────────────────────────────────
-// All admin API calls include the ADMIN_API_SECRET from client env.
-// WHY: NEXT_PUBLIC_ prefix exposes it to the browser — this is intentional
-// for a single-tenant admin dashboard. Multi-tenant → use Supabase Auth instead.
 async function adminFetch(path: string, opts?: RequestInit) {
   const secret = process.env.NEXT_PUBLIC_ADMIN_API_SECRET ?? '';
   const res = await fetch(path, {
@@ -29,12 +24,13 @@ async function adminFetch(path: string, opts?: RequestInit) {
   return res.json();
 }
 
-// ── EditorDraft ───────────────────────────────────────────────────────────────
-// Local working copy of the banner — only saved when user clicks Save.
 export interface EditorDraft {
   slug:            string;
   name:            string;
   bannerStyles:    string;
+  content:         ContentBlock[];
+  buttons:         ButtonConfig[];
+  // legacy — kept for backward compat
   buttonConfig:    ButtonConfig | null;
   imageAssets:     ImageAssets | null;
   jsTrigger:       JsTriggerPreset | null;
@@ -48,6 +44,8 @@ function bannerToDraft(banner: Banner): EditorDraft {
     slug:            banner.slug,
     name:            banner.name,
     bannerStyles:    banner.bannerStyles,
+    content:         banner.content ?? [],
+    buttons:         banner.buttons ?? [],
     buttonConfig:    banner.buttonConfig,
     imageAssets:     banner.imageAssets,
     jsTrigger:       banner.jsTrigger,
@@ -61,6 +59,8 @@ const emptyDraft = (): EditorDraft => ({
   slug:            '',
   name:            '',
   bannerStyles:    '',
+  content:         [],
+  buttons:         [],
   buttonConfig:    null,
   imageAssets:     null,
   jsTrigger:       null,
@@ -69,31 +69,30 @@ const emptyDraft = (): EditorDraft => ({
   allowedDomains:  [],
 });
 
-// ── useBannerEditor ───────────────────────────────────────────────────────────
 export function useBannerEditor(initial?: Banner) {
-  const [saved,     setSaved]     = useState<Banner | null>(initial ?? null);
-  const [draft,     setDraft]     = useState<EditorDraft>(
+  const [saved,      setSaved]      = useState<Banner | null>(initial ?? null);
+  const [draft,      setDraft]      = useState<EditorDraft>(
     initial ? bannerToDraft(initial) : emptyDraft()
   );
-  const [saving,    setSaving]    = useState(false);
-  const [publishing,setPublishing]= useState(false);
-  const [error,     setError]     = useState<string | null>(null);
-
-  // ── Draft field updaters ──────────────────────────────────────────────────
+  const [saving,     setSaving]     = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [error,      setError]      = useState<string | null>(null);
 
   const updateField = useCallback(<K extends keyof EditorDraft>(key: K, value: EditorDraft[K]) => {
     setDraft(d => ({ ...d, [key]: value }));
     setError(null);
   }, []);
 
-  const setButtonConfig    = useCallback((v: ButtonConfig | null) => updateField('buttonConfig', v), [updateField]);
-  const setImageAssets     = useCallback((v: ImageAssets | null) => updateField('imageAssets', v), [updateField]);
-  const setJsTrigger       = useCallback((v: JsTriggerPreset | null) => updateField('jsTrigger', v), [updateField]);
-  const setCountdownConfig = useCallback((v: CountdownConfig | null) => updateField('countdownConfig', v), [updateField]);
-  const setSliderConfig    = useCallback((v: SliderConfig | null) => updateField('sliderConfig', v), [updateField]);
-  const setBannerStyles    = useCallback((v: string) => updateField('bannerStyles', v), [updateField]);
+  const setContent         = useCallback((v: ContentBlock[])       => updateField('content', v), [updateField]);
+  const setButtons         = useCallback((v: ButtonConfig[])       => updateField('buttons', v), [updateField]);
+  const setButtonConfig    = useCallback((v: ButtonConfig | null)  => updateField('buttonConfig', v), [updateField]);
+  const setImageAssets     = useCallback((v: ImageAssets | null)   => updateField('imageAssets', v), [updateField]);
+  const setJsTrigger       = useCallback((v: JsTriggerPreset|null) => updateField('jsTrigger', v), [updateField]);
+  const setCountdownConfig = useCallback((v: CountdownConfig|null) => updateField('countdownConfig', v), [updateField]);
+  const setSliderConfig    = useCallback((v: SliderConfig | null)  => updateField('sliderConfig', v), [updateField]);
+  const setBannerStyles    = useCallback((v: string)               => updateField('bannerStyles', v), [updateField]);
 
-  // ── Save (create or update) ───────────────────────────────────────────────
+  // ── Save ──────────────────────────────────────────────────────────────────
   const save = useCallback(async (): Promise<boolean> => {
     setSaving(true);
     setError(null);
@@ -105,10 +104,11 @@ export function useBannerEditor(initial?: Banner) {
 
       let result;
       if (saved) {
-        // Update existing
         const body: UpdateBannerInput = {
           name:            draft.name,
           bannerStyles:    draft.bannerStyles,
+          content:         draft.content,
+          buttons:         draft.buttons,
           buttonConfig:    draft.buttonConfig,
           imageAssets:     draft.imageAssets,
           jsTrigger:       draft.jsTrigger,
@@ -120,11 +120,12 @@ export function useBannerEditor(initial?: Banner) {
           method: 'PATCH', body: JSON.stringify(body),
         });
       } else {
-        // Create new
         const body: CreateBannerInput = {
           slug:            draft.slug,
           name:            draft.name,
           bannerStyles:    draft.bannerStyles,
+          content:         draft.content,
+          buttons:         draft.buttons,
           buttonConfig:    draft.buttonConfig,
           imageAssets:     draft.imageAssets,
           jsTrigger:       draft.jsTrigger,
@@ -190,12 +191,11 @@ export function useBannerEditor(initial?: Banner) {
     : true;
 
   return {
-    // State
     saved, draft, saving, publishing, error, isDirty,
-    // Updaters
-    updateField, setBannerStyles, setButtonConfig,
-    setImageAssets, setJsTrigger, setCountdownConfig, setSliderConfig,
-    // Actions
+    updateField, setBannerStyles,
+    setContent, setButtons,
+    setButtonConfig, setImageAssets, setJsTrigger,
+    setCountdownConfig, setSliderConfig,
     save, publish, unpublish,
   };
 }

@@ -4,9 +4,6 @@
 // Used by: bannerService.ts, all API routes, all components, banner-engine.js (as reference)
 
 // ── JS trigger presets ────────────────────────────────────────────────────────
-// These are the ONLY allowed values for js_trigger.
-// They map to hardcoded functions in banner-engine.js — never eval'd.
-// WHY: Zero Injected Scripts security model (PDF p.11).
 export const JS_TRIGGER_PRESETS = [
   'confetti',
   'shake',
@@ -18,6 +15,19 @@ export const JS_TRIGGER_PRESETS = [
 
 export type JsTriggerPreset = typeof JS_TRIGGER_PRESETS[number];
 
+// ── ContentBlock ──────────────────────────────────────────────────────────────
+// A single content block inside the banner.
+// type = 'heading' → rendered as <h1>-<h3>
+// type = 'text'    → rendered as <p>
+// type = 'html'    → rendered as sanitized innerHTML (admin-only, stripped server-side)
+export interface ContentBlock {
+  id:     string;                          // random id for React key / ordering
+  type:   'heading' | 'text' | 'html';
+  value:  string;
+  align?: 'left' | 'center' | 'right';
+  level?: 1 | 2 | 3;                      // heading only
+}
+
 // ── ButtonConfig ──────────────────────────────────────────────────────────────
 export interface ButtonConfig {
   label:     string;
@@ -28,7 +38,7 @@ export interface ButtonConfig {
 
 // ── ImageAssets ───────────────────────────────────────────────────────────────
 export interface ImageAssets {
-  url:    string;   // Supabase S3 public URL
+  url:    string;
   alt:    string;
   width:  number;
   height: number;
@@ -36,28 +46,27 @@ export interface ImageAssets {
 
 // ── CountdownConfig ───────────────────────────────────────────────────────────
 export interface CountdownConfig {
-  endIso: string;   // ISO 8601 UTC — fetched from Server API on client
-  labels: {
-    days:  string;
-    hours: string;
-    mins:  string;
-    secs:  string;
-  };
+  endIso: string;
+  labels: { days: string; hours: string; mins: string; secs: string };
 }
 
 // ── SliderConfig ──────────────────────────────────────────────────────────────
 export interface SliderConfig {
   images:    Array<{ url: string; alt: string }>;
-  interval:  number;   // ms between slides
+  interval:  number;
   animation: 'fade' | 'slide';
 }
 
-// ── Banner (domain type — not raw DB row) ─────────────────────────────────────
+// ── Banner (domain type) ──────────────────────────────────────────────────────
 export interface Banner {
   id:              string;
   slug:            string;
   name:            string;
   bannerStyles:    string;
+  // v2 fields
+  content:         ContentBlock[];    // ordered content blocks (heading/text/html)
+  buttons:         ButtonConfig[];    // multiple buttons — supersedes buttonConfig
+  // legacy (kept for backward compat — use buttons[] instead)
   buttonConfig:    ButtonConfig | null;
   imageAssets:     ImageAssets | null;
   jsTrigger:       JsTriggerPreset | null;
@@ -71,11 +80,12 @@ export interface Banner {
 }
 
 // ── BannerPublicPayload ───────────────────────────────────────────────────────
-// Subset returned by the public API — no internal metadata exposed
 export interface BannerPublicPayload {
   slug:            string;
   bannerStyles:    string;
-  buttonConfig:    ButtonConfig | null;
+  content:         ContentBlock[];
+  buttons:         ButtonConfig[];
+  buttonConfig:    ButtonConfig | null;  // legacy — client SDK falls back to this
   imageAssets:     ImageAssets | null;
   jsTrigger:       JsTriggerPreset | null;
   countdownConfig: CountdownConfig | null;
@@ -84,25 +94,27 @@ export interface BannerPublicPayload {
 
 // ── CreateBannerInput / UpdateBannerInput ─────────────────────────────────────
 export interface CreateBannerInput {
-  slug:            string;
-  name:            string;
-  bannerStyles?:   string;
-  buttonConfig?:   ButtonConfig | null;
-  imageAssets?:    ImageAssets | null;
-  jsTrigger?:      JsTriggerPreset | null;
+  slug:             string;
+  name:             string;
+  bannerStyles?:    string;
+  content?:         ContentBlock[];
+  buttons?:         ButtonConfig[];
+  buttonConfig?:    ButtonConfig | null;
+  imageAssets?:     ImageAssets | null;
+  jsTrigger?:       JsTriggerPreset | null;
   countdownConfig?: CountdownConfig | null;
-  sliderConfig?:   SliderConfig | null;
-  allowedDomains?: string[];
+  sliderConfig?:    SliderConfig | null;
+  allowedDomains?:  string[];
 }
 
 export type UpdateBannerInput = Partial<CreateBannerInput>;
 
-// ── AuditLog ─────────────────────────────────────────────────────────────────
+// ── AuditLog ──────────────────────────────────────────────────────────────────
 export interface AuditLog {
   id:        string;
   bannerId:  string;
   action:    'created' | 'updated' | 'published' | 'unpublished' | 'deleted';
-  changes:   Record<string, [unknown, unknown]>;   // { field: [old, new] }
+  changes:   Record<string, [unknown, unknown]>;
   createdAt: string;
 }
 

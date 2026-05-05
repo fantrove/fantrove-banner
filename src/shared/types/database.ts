@@ -1,6 +1,6 @@
 // Path:    src/shared/types/database.ts
 // Purpose: Supabase generated DB types (run: npx supabase gen types typescript).
-//          This stub matches schema.sql — regenerate after schema changes.
+//          Updated for v2: content blocks + multiple buttons.
 // Used by: db.ts
 
 export interface Database {
@@ -12,6 +12,10 @@ export interface Database {
           slug:             string;
           name:             string;
           banner_styles:    string | null;
+          // v2
+          content:          Record<string, unknown>[] | null;
+          buttons:          Record<string, unknown>[] | null;
+          // legacy
           button_config:    Record<string, unknown> | null;
           image_assets:     Record<string, unknown> | null;
           js_trigger:       string | null;
@@ -28,6 +32,8 @@ export interface Database {
           slug:              string;
           name:              string;
           banner_styles?:    string | null;
+          content?:          Record<string, unknown>[] | null;
+          buttons?:          Record<string, unknown>[] | null;
           button_config?:    Record<string, unknown> | null;
           image_assets?:     Record<string, unknown> | null;
           js_trigger?:       string | null;
@@ -42,6 +48,8 @@ export interface Database {
           slug?:             string;
           name?:             string;
           banner_styles?:    string | null;
+          content?:          Record<string, unknown>[] | null;
+          buttons?:          Record<string, unknown>[] | null;
           button_config?:    Record<string, unknown> | null;
           image_assets?:     Record<string, unknown> | null;
           js_trigger?:       string | null;

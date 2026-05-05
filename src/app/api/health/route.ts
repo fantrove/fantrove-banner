@@ -38,7 +38,7 @@ async function checkDatabase(): Promise<CheckResult> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return {
-      ok:     false,
+      ok:      false,
       message: '❌ Database — connection failed',
       detail:  msg,
     };
@@ -46,12 +46,10 @@ async function checkDatabase(): Promise<CheckResult> {
 }
 
 // ── checkDatabaseWrite ────────────────────────────────────────────────────────
-// ตรวจว่า service_role key มีสิทธิ์ write หรือไม่ (dry-run: insert + rollback)
+// ตรวจว่า service_role key มีสิทธิ์ write หรือไม่ (dry-run: empty read)
 async function checkDatabaseWrite(): Promise<CheckResult> {
   try {
     const db = getDb();
-    // ใช้ rpc เพื่อ test write permission โดยไม่ทำให้ข้อมูลเปลี่ยน
-    // Fallback: ลอง insert แล้ว delete ทันที
     const { error } = await db
       .from('banners')
       .select('id')
@@ -63,8 +61,8 @@ async function checkDatabaseWrite(): Promise<CheckResult> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return {
-      ok:     false,
-      message: '❌ Database write permission — check service_role key',
+      ok:      false,
+      message: '❌ Database write permission — check SUPABASE_SERVICE_ROLE_KEY',
       detail:  msg,
     };
   }
@@ -84,24 +82,24 @@ function checkAdminAuth(): CheckResult[] {
 
   if (!serverSecret) {
     results.push({
-      ok:     false,
+      ok:      false,
       message: '❌ Auth — ADMIN_API_SECRET not set → all admin API calls will return Unauthorized',
     });
   } else if (!clientSecret) {
     results.push({
-      ok:     false,
+      ok:      false,
       message: '❌ Auth — NEXT_PUBLIC_ADMIN_API_SECRET not set → Dashboard cannot send Bearer token → Unauthorized on Save/Publish',
       detail:  'Fix: Add NEXT_PUBLIC_ADMIN_API_SECRET = (same value as ADMIN_API_SECRET) to Vercel Environment Variables',
     });
   } else if (serverSecret !== clientSecret) {
     results.push({
-      ok:     false,
+      ok:      false,
       message: '❌ Auth — ADMIN_API_SECRET ≠ NEXT_PUBLIC_ADMIN_API_SECRET → mismatch will cause Unauthorized',
       detail:  'Both variables must have exactly the same value',
     });
   } else {
     results.push({
-      ok:     true,
+      ok:      true,
       message: '✅ Auth — server secret matches client secret → Save/Publish should work',
     });
   }
@@ -116,9 +114,11 @@ export async function GET() {
     checkDatabaseWrite(),
   ]);
 
+  // WHY SUPABASE_SERVICE_ROLE_KEY: Supabase Vercel integration injects this exact
+  // variable name. Checking the correct name ensures accurate health reporting.
   const envChecks: CheckResult[] = [
     checkEnvVar('SUPABASE_URL'),
-    checkEnvVar('SUPABASE_SERVICE_ROLE'),
+    checkEnvVar('SUPABASE_SERVICE_ROLE_KEY'),
     checkEnvVar('CF_ZONE_ID'),
     checkEnvVar('CF_API_TOKEN'),
     checkEnvVar('NEXT_PUBLIC_APP_URL'),
@@ -146,9 +146,9 @@ export async function GET() {
     );
   }
 
-  if (!process.env['SUPABASE_URL'] || !process.env['SUPABASE_SERVICE_ROLE']) {
+  if (!process.env['SUPABASE_URL'] || !process.env['SUPABASE_SERVICE_ROLE_KEY']) {
     diagnosis.push(
-      '🔴 Supabase not configured: SUPABASE_URL or SUPABASE_SERVICE_ROLE is missing.'
+      '🔴 Supabase not configured: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing.'
     );
   }
 
@@ -157,8 +157,7 @@ export async function GET() {
     diagnosis.push(
       '🟡 Cloudflare CDN purge disabled: CF_ZONE_ID or CF_API_TOKEN not set. ' +
       'Publish will work but CDN cache will not be purged immediately. ' +
-      'Note: For Cloudflare Pages (static site), purge targets the Vercel API URL — ' +
-      'set CF_ZONE_ID to the zone that hosts your Vercel custom domain, or leave blank to skip.'
+      'Fantrove (Cloudflare Pages static) will receive the new banner within 60s via max-age header.'
     );
   }
 
@@ -177,7 +176,6 @@ export async function GET() {
         passed: allChecks.filter(c => c.ok).length,
         failed: allChecks.filter(c => !c.ok).length,
       },
-      // Instructions for Fantrove integration (Cloudflare Pages static)
       fantrove_integration: {
         note: 'Fantrove runs on Cloudflare Pages (static) — banner-engine.js fetches JSON from this Vercel API via fetch(). No server-side code needed on Fantrove side.',
         steps: [

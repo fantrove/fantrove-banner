@@ -14,8 +14,11 @@ function getEnv(key: string, fallback = ''): string {
 
 export const env = {
   // ── Supabase (server-only) ─────────────────────────────────────────────────
+  // WHY SUPABASE_SERVICE_ROLE_KEY: Supabase's official Vercel integration injects
+  // this exact variable name automatically. Using the correct name avoids silent
+  // fallback chains and makes the config intent explicit.
   SUPABASE_URL:          getEnv('SUPABASE_URL'),
-  SUPABASE_SERVICE_ROLE: getEnv('SUPABASE_SERVICE_ROLE') || getEnv('SUPABASE_SERVICE_ROLE_KEY'),
+  SUPABASE_SERVICE_ROLE: getEnv('SUPABASE_SERVICE_ROLE_KEY'),
 
   // ── Admin auth ─────────────────────────────────────────────────────────────
   // ⚠️  MOST COMMON BUG: Unauthorized on Save/Publish
@@ -27,6 +30,7 @@ export const env = {
   // ── Cloudflare CDN purge ───────────────────────────────────────────────────
   // Optional for Cloudflare Pages (static Fantrove):
   //   Leave blank → purge becomes no-op, publish still works.
+  //   CDN will self-refresh within 60s via max-age=60 header.
   CF_ZONE_ID:   getEnv('CF_ZONE_ID'),
   CF_API_TOKEN: getEnv('CF_API_TOKEN'),
 

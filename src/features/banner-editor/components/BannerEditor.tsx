@@ -1,17 +1,18 @@
 // Path: src/features/banner-editor/components/BannerEditor.tsx
-// Purpose: Main editor — v3 with mode toggle (Builder|HTML) + language tabs.
+// Purpose: Main editor — v4 with 3 modes: Builder | HTML | Full.
 
 'use client';
 
-import type { Banner }                from '@/shared/types/banner';
-import { useBannerEditor }            from '../hooks/useBannerEditor';
-import { ContentBlockEditor }         from './ContentBlockEditor';
-import { MultiButtonEditor }          from './MultiButtonEditor';
-import { CountdownEditor }            from './CountdownEditor';
-import { SliderEditor }               from './SliderEditor';
+import type { Banner }                  from '@/shared/types/banner';
+import { useBannerEditor }              from '../hooks/useBannerEditor';
+import { ContentBlockEditor }           from './ContentBlockEditor';
+import { MultiButtonEditor }            from './MultiButtonEditor';
+import { CountdownEditor }              from './CountdownEditor';
+import { SliderEditor }                 from './SliderEditor';
 import { StylePicker, JsTriggerPicker } from './StylePicker';
-import { LivePreview }                from './LivePreview';
-import { HtmlModeEditor }             from './HtmlModeEditor';
+import { LivePreview }                  from './LivePreview';
+import { HtmlModeEditor }               from './HtmlModeEditor';
+import { FullHtmlEditor }               from './FullHtmlEditor';
 
 interface Props { initial?: Banner; onSaved?: (b: Banner) => void }
 
@@ -22,7 +23,8 @@ export function BannerEditor({ initial, onSaved }: Props) {
     updateField, setBannerStyles,
     setContent, setButtons, setJsTrigger,
     setCountdownConfig, setSliderConfig,
-    setCustomHtml, setTranslations, setEditorMode,
+    setCustomHtml, setCustomCss, setTranslations,
+    setFrameworkImports, setEditorMode,
     save, publish, unpublish,
   } = useBannerEditor(initial);
 
@@ -31,8 +33,11 @@ export function BannerEditor({ initial, onSaved }: Props) {
     if (ok && saved && onSaved) onSaved(saved);
   }
 
-  const isHtmlMode    = draft.editorMode === 'html';
-  const langs         = draft.supportedLangs?.length ? draft.supportedLangs : ['en', 'th'];
+  const langs    = draft.supportedLangs?.length ? draft.supportedLangs : ['en', 'th'];
+  const mode     = draft.editorMode;
+  const isBuilder = mode === 'builder';
+  const isHtml    = mode === 'html';
+  const isFull    = mode === 'full';
 
   return (
     <div className="editor-root">
@@ -48,17 +53,25 @@ export function BannerEditor({ initial, onSaved }: Props) {
           )}
           {isDirty && <span className="unsaved-dot" title="Unsaved changes">●</span>}
 
-          {/* Mode toggle */}
+          {/* Mode toggle — 3 modes */}
           <div className="mode-toggle">
             <button type="button"
-              className={`mode-btn ${!isHtmlMode ? 'mode-btn--active' : ''}`}
-              onClick={() => setEditorMode('builder')}>
+              className={`mode-btn ${isBuilder ? 'mode-btn--active' : ''}`}
+              onClick={() => setEditorMode('builder')}
+              title="Component-based no-code editor">
               🧱 Builder
             </button>
             <button type="button"
-              className={`mode-btn ${isHtmlMode ? 'mode-btn--active' : ''}`}
-              onClick={() => setEditorMode('html')}>
+              className={`mode-btn ${isHtml ? 'mode-btn--active' : ''}`}
+              onClick={() => setEditorMode('html')}
+              title="Write inner HTML; engine provides the banner wrapper">
               &lt;/&gt; HTML
+            </button>
+            <button type="button"
+              className={`mode-btn ${isFull ? 'mode-btn--active' : ''}`}
+              onClick={() => setEditorMode('full')}
+              title="Full control — write everything from root, no wrapper forced">
+              🔓 Full
             </button>
           </div>
         </div>
@@ -90,25 +103,27 @@ export function BannerEditor({ initial, onSaved }: Props) {
       <div className="editor-layout">
         <div className="editor-controls">
 
-          {/* Language tabs */}
+          {/* Language tabs — shown in all modes */}
           <div style={{ display:'flex', gap:4, padding:'10px 16px 0', borderBottom:'1px solid var(--border)' }}>
             {langs.map(l => (
               <button key={l} type="button"
                 className={`mode-btn ${activeLang === l ? 'mode-btn--active' : ''}`}
                 onClick={() => setActiveLang(l)}
-                style={{ fontSize: 11, padding: '4px 10px' }}>
+                style={{ fontSize:11, padding:'4px 10px' }}>
                 {l.toUpperCase()}
               </button>
             ))}
-            <button type="button" className="btn-text-sm" style={{ marginLeft: 'auto' }}
+            <button type="button" className="btn-text-sm" style={{ marginLeft:'auto' }}
               onClick={() => {
                 const l = prompt('Language code (e.g. jp):')?.trim().toLowerCase();
                 if (l && !langs.includes(l))
                   updateField('supportedLangs', [...langs, l]);
-              }}>+ Lang</button>
+              }}>
+              + Lang
+            </button>
           </div>
 
-          {/* Meta */}
+          {/* Meta — shown in all modes */}
           <div className="component-section">
             <div className="section-header">
               <label className="section-label"><span className="section-icon">📋</span>Banner Info</label>
@@ -126,44 +141,65 @@ export function BannerEditor({ initial, onSaved }: Props) {
                   placeholder="welcome-banner"
                   onChange={e => updateField('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g,'-'))}
                   disabled={!!saved} maxLength={60} />
-                {saved && <span className="field-hint">Public URL: <code>/api/public/banners/{draft.slug}</code></span>}
+                {saved && (
+                  <span className="field-hint">
+                    Public URL: <code>/api/public/banners/{draft.slug}</code>
+                  </span>
+                )}
               </div>
               <div className="field-row">
                 <label className="field-label">Allowed Domains</label>
                 <input className="field-input" type="text"
                   value={draft.allowedDomains.join(', ')}
                   placeholder="fantrove.com, *.fantrove.com"
-                  onChange={e => updateField('allowedDomains', e.target.value.split(',').map(s=>s.trim()).filter(Boolean))} />
+                  onChange={e => updateField('allowedDomains',
+                    e.target.value.split(',').map(s=>s.trim()).filter(Boolean))} />
               </div>
             </div>
           </div>
 
-          {/* Style (always available) */}
-          <StylePicker value={draft.bannerStyles} onChange={setBannerStyles} />
+          {/* ── FULL MODE ───────────────────────────────────────────────── */}
+          {isFull && (
+            <FullHtmlEditor
+              html={draft.customHtml}
+              css={draft.customCss}
+              translations={draft.translations}
+              frameworkImports={draft.frameworkImports}
+              langs={langs}
+              activeLang={activeLang}
+              onHtmlChange={setCustomHtml}
+              onCssChange={setCustomCss}
+              onTranslationsChange={setTranslations}
+              onFrameworkImportsChange={setFrameworkImports}
+            />
+          )}
 
-          {/* JS Trigger (always available) */}
-          <JsTriggerPicker value={draft.jsTrigger} onChange={setJsTrigger} />
+          {/* ── HTML MODE ───────────────────────────────────────────────── */}
+          {isHtml && (
+            <>
+              <StylePicker value={draft.bannerStyles} onChange={setBannerStyles} />
+              <JsTriggerPicker value={draft.jsTrigger} onChange={setJsTrigger} />
+              <HtmlModeEditor
+                html={draft.customHtml}
+                translations={draft.translations}
+                langs={langs}
+                activeLang={activeLang}
+                onChange={setCustomHtml}
+                onTranslationsChange={setTranslations}
+              />
+            </>
+          )}
 
           {/* ── BUILDER MODE ────────────────────────────────────────────── */}
-          {!isHtmlMode && (
+          {isBuilder && (
             <>
+              <StylePicker value={draft.bannerStyles} onChange={setBannerStyles} />
+              <JsTriggerPicker value={draft.jsTrigger} onChange={setJsTrigger} />
               <ContentBlockEditor value={draft.content} onChange={setContent} activeLang={activeLang} />
               <MultiButtonEditor  value={draft.buttons} onChange={setButtons} activeLang={activeLang} />
               <CountdownEditor    value={draft.countdownConfig} onChange={setCountdownConfig} activeLang={activeLang} />
               <SliderEditor       value={draft.sliderConfig} onChange={setSliderConfig} />
             </>
-          )}
-
-          {/* ── HTML MODE ───────────────────────────────────────────────── */}
-          {isHtmlMode && (
-            <HtmlModeEditor
-              html={draft.customHtml}
-              translations={draft.translations}
-              langs={langs}
-              activeLang={activeLang}
-              onChange={setCustomHtml}
-              onTranslationsChange={setTranslations}
-            />
           )}
 
           {saved && (

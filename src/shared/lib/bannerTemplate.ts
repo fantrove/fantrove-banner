@@ -1,8 +1,9 @@
 // Path: src/shared/lib/bannerTemplate.ts
 // Purpose: Single source of truth for banner rendering.
-//          v3: i18n (LangValue fields) + HTML mode (customHtml).
+//          v4: full mode (customHtml + customCss from root, no wrapper forced,
+//              framework imports injected as link/script tags).
 
-import type { BannerPublicPayload } from '../types/banner';
+import type { BannerPublicPayload, FrameworkImport } from '../types/banner';
 import { resolveLang } from '../types/banner';
 
 export { resolveLang };
@@ -23,15 +24,30 @@ export function sanitizeHtml(raw: string): string {
     .replace(/javascript\s*:/gi,'javascript-blocked:');
 }
 
+// ── Framework imports → safe <link>/<script> tags ────────────────────────────
+// WHY: only HTTPS CDN URLs allowed; src/href validated before injection.
+function buildFrameworkTags(imports: FrameworkImport[]): string {
+  return (imports ?? [])
+    .filter(imp => {
+      try { return new URL(imp.url).protocol === 'https:'; } catch { return false; }
+    })
+    .map(imp =>
+      imp.type === 'css'
+        ? `<link rel="stylesheet" href="${esc(imp.url)}" crossorigin="anonymous" />`
+        : `<script src="${esc(imp.url)}" crossorigin="anonymous"></script>`
+    )
+    .join('\n');
+}
+
 // ── Apply data-i18n substitution ──────────────────────────────────────────────
-// Elements with data-i18n="key" get textContent replaced from translations.
-// Used in HTML mode. banner-engine.js does the same client-side.
-export function applyTranslations(html: string, translations: Record<string, Record<string,string>>, lang: string): string {
+export function applyTranslations(
+  html: string,
+  translations: Record<string, Record<string, string>>,
+  lang: string
+): string {
   const langMap = translations[lang] ?? translations['en'] ?? {};
-  return html.replace(/data-i18n="([^"]+)"/g, (_match, key: string) => {
-    const val = langMap[key] ?? key;
-    return `data-i18n="${key}"`;
-  }).replace(/<([a-z][a-z0-9]*)[^>]*\sdata-i18n="([^"]+)"[^>]*>([^<]*)<\/\1>/gi,
+  return html.replace(
+    /<([a-z][a-z0-9]*)[^>]*\sdata-i18n="([^"]+)"[^>]*>([^<]*)<\/\1>/gi,
     (match, tag, key, _inner) => {
       const val = langMap[key] ?? key;
       return match.replace(_inner, esc(val));
@@ -39,7 +55,7 @@ export function applyTranslations(html: string, translations: Record<string, Rec
   );
 }
 
-// ── BASE CSS (mirrored in banner-engine.js) ───────────────────────────────────
+// ── BASE CSS for builder + html modes (not used in full mode) ─────────────────
 export const BASE_CSS = `
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 .be-banner{position:relative;overflow:hidden;border-radius:16px;padding:28px 24px;display:flex;flex-direction:column;gap:14px;background:linear-gradient(135deg,#13b47f 0%,#0eb0d5 100%);color:#fff;font-family:system-ui,-apple-system,sans-serif;box-shadow:0 4px 24px rgba(0,0,0,.12);}
@@ -65,26 +81,21 @@ export const BASE_CSS = `
 @media(max-width:480px){.be-banner{padding:20px 16px;border-radius:12px;}.button{padding:12px 20px;font-size:15px;width:100%;justify-content:center;}.be-btn-row{flex-direction:column;}.be-cd-num{font-size:20px;}}
 `.trim();
 
-// ── buildBannerInnerHtml ──────────────────────────────────────────────────────
-// v3: respects editorMode. In html mode, uses customHtml[lang].
-// In builder mode, builds from content/buttons blocks with i18n.
+// ── buildBannerInnerHtml (builder + html modes) ───────────────────────────────
 export function buildBannerInnerHtml(
   data: BannerPublicPayload,
   opts?: { lang?: string; staticCountdown?: boolean }
 ): string {
   const lang = opts?.lang ?? 'en';
 
-  // ── HTML mode ───────────────────────────────────────────────────────────────
   if (data.editorMode === 'html') {
     const html = data.customHtml?.[lang] ?? data.customHtml?.['en'] ?? '';
-    const withI18n = applyTranslations(sanitizeHtml(html), data.translations ?? {}, lang);
-    return withI18n;
+    return applyTranslations(sanitizeHtml(html), data.translations ?? {}, lang);
   }
 
-  // ── Builder mode ────────────────────────────────────────────────────────────
+  // builder mode
   const parts: string[] = [];
 
-  // Slider
   if (data.sliderConfig?.images?.length) {
     const imgs = data.sliderConfig.images.filter(i => i.url).map((img, idx) =>
       `<img src="${safeAttr(img.url)}" alt="${esc(resolveLang(img.alt, lang))}" class="be-slide-img" loading="${idx===0?'eager':'lazy'}" style="display:${idx===0?'block':'none'};" />`
@@ -92,13 +103,11 @@ export function buildBannerInnerHtml(
     parts.push(`<div class="be-slider" data-interval="${esc(data.sliderConfig.interval)}" data-animation="${esc(data.sliderConfig.animation)}">${imgs}</div>`);
   }
 
-  // Image (no slider)
   if (!data.sliderConfig && data.imageAssets?.url) {
     const img = data.imageAssets;
     parts.push(`<img src="${safeAttr(img.url)}" alt="${esc(img.alt)}" class="be-image"${img.width?` width="${img.width}"`:''}${img.height?` height="${img.height}"`:''} />`);
   }
 
-  // Content blocks with i18n
   if (data.content?.length) {
     for (const block of data.content) {
       const text  = resolveLang(block.value, lang);
@@ -114,7 +123,6 @@ export function buildBannerInnerHtml(
     }
   }
 
-  // Countdown with i18n labels
   if (data.countdownConfig) {
     const { labels, endIso } = data.countdownConfig;
     const units = ['days','hours','mins','secs'] as const;
@@ -125,7 +133,6 @@ export function buildBannerInnerHtml(
     parts.push(`<div class="be-countdown" data-end-iso="${esc(endIso)}">${cells}</div>`);
   }
 
-  // Buttons with i18n labels
   const btns = data.buttons?.length ? data.buttons : data.buttonConfig ? [data.buttonConfig] : [];
   if (btns.length) {
     const btnHtml = btns.map(b => {
@@ -141,9 +148,41 @@ export function buildBannerInnerHtml(
 }
 
 // ── buildPreviewDocument ──────────────────────────────────────────────────────
+// Handles all three modes. 'full' mode gets no .be-banner wrapper + uses
+// customCss[lang] + frameworkImports.
 export function buildPreviewDocument(data: BannerPublicPayload, lang = 'en'): string {
+
+  // ── FULL MODE ───────────────────────────────────────────────────────────────
+  if (data.editorMode === 'full') {
+    const rawHtml = data.customHtml?.[lang] ?? data.customHtml?.['en'] ?? '';
+    const rawCss  = data.customCss?.[lang]  ?? data.customCss?.['en']  ?? data.bannerStyles ?? '';
+
+    const sanitizedHtml = sanitizeHtml(rawHtml);
+    const translatedHtml = applyTranslations(sanitizedHtml, data.translations ?? {}, lang);
+    const frameworkTags  = buildFrameworkTags(data.frameworkImports ?? []);
+
+    return `<!DOCTYPE html>
+<html lang="${esc(lang)}">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+${frameworkTags}
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{padding:12px;background:#f0f2f5;}
+${rawCss}
+</style>
+</head>
+<body>
+${translatedHtml}
+</body>
+</html>`;
+  }
+
+  // ── BUILDER + HTML MODES ────────────────────────────────────────────────────
   const userCss = String(data.bannerStyles ?? '').replace(/<\/style>/gi,'');
   const inner   = buildBannerInnerHtml(data, { lang, staticCountdown: true });
+
   return `<!DOCTYPE html>
 <html lang="${esc(lang)}">
 <head>

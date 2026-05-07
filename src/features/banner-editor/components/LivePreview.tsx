@@ -19,13 +19,13 @@ function draftToPayload(draft: EditorDraft): BannerPublicPayload {
     customHtml: draft.customHtml,
     translations: draft.translations,
     supportedLangs: draft.supportedLangs,
-    content: draft.content,
-    buttons: draft.buttons,
-    buttonConfig: draft.buttonConfig,
-    imageAssets: draft.imageAssets,
-    jsTrigger: draft.jsTrigger,
-    countdownConfig: draft.countdownConfig,
-    sliderConfig: draft.sliderConfig,
+    createdAt: draft.createdAt,
+    updatedAt: draft.updatedAt,
+    sliderConfig: draft.sliderConfig ?? null,
+    
+    // เพิ่มสองฟิลด์ที่ขาดไป (ปรับค่าเริ่มต้นให้ตรงกับชนิดในโปรเจค)
+    customCss: (draft as any).customCss ?? '', // ถ้า type เป็น string -> ใช้ ''
+    frameworkImports: (draft as any).frameworkImports ?? [], // ถ้า type เป็น string[] -> ใช้ []
   };
 }
 

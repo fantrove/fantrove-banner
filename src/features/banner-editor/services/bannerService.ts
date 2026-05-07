@@ -1,5 +1,4 @@
-// Path:    src/features/banner-editor/services/bannerService.ts
-// Purpose: All banner CRUD, publish, and audit logic. v2: content + buttons.
+// Path: src/features/banner-editor/services/bannerService.ts — v3
 
 import { getDb }            from '@/shared/lib/db';
 import { purgeBannerCache } from '@/shared/lib/cloudflare';
@@ -11,34 +10,34 @@ import type { Database } from '@/shared/types/database';
 
 type BannerRow = Database['public']['Tables']['banners']['Row'];
 
-function toJsonb(val: unknown): Record<string, unknown> | null {
+function toJsonb(val: unknown): Record<string,unknown>|null {
   if (val == null) return null;
-  return val as unknown as Record<string, unknown>;
+  return val as unknown as Record<string,unknown>;
 }
-function toJsonbArray(val: unknown): Record<string, unknown>[] | null {
+function toJsonbArray(val: unknown): Record<string,unknown>[]|null {
   if (val == null) return null;
-  return val as unknown as Record<string, unknown>[];
+  return val as unknown as Record<string,unknown>[];
 }
 
-// ── Row → Domain type ─────────────────────────────────────────────────────────
-// WHY `as unknown as T`:
-// TS 5.5 strict mode rejects direct cast from Record<string,unknown>[] to
-// ContentBlock[] / ButtonConfig[] — types don't sufficiently overlap.
-// Double-casting via unknown is the correct pattern here: we own the schema,
-// JSONB columns are constrained by the migration, and we trust the shape.
+// WHY `as unknown as T`: TS5.5 strict mode rejects direct cast from
+// Record<string,unknown>[] to typed arrays. Double-cast via unknown is correct.
 function rowToBanner(row: BannerRow): Banner {
   return {
     id:              row.id,
     slug:            row.slug,
     name:            row.name,
     bannerStyles:    row.banner_styles ?? '',
-    content:         (row.content as unknown as Banner['content'])         ?? [],
-    buttons:         (row.buttons as unknown as Banner['buttons'])         ?? [],
+    editorMode:      (row.editor_mode as 'builder'|'html') ?? 'builder',
+    customHtml:      (row.custom_html as unknown as Record<string,string>) ?? {},
+    translations:    (row.translations as unknown as Banner['translations']) ?? {},
+    supportedLangs:  row.supported_langs ?? ['en','th'],
+    content:         (row.content as unknown as Banner['content']) ?? [],
+    buttons:         (row.buttons as unknown as Banner['buttons']) ?? [],
     buttonConfig:    (row.button_config as unknown as Banner['buttonConfig']) ?? null,
-    imageAssets:     (row.image_assets as unknown as Banner['imageAssets'])  ?? null,
-    jsTrigger:       (row.js_trigger as Banner['jsTrigger'])                ?? null,
+    imageAssets:     (row.image_assets as unknown as Banner['imageAssets']) ?? null,
+    jsTrigger:       (row.js_trigger as Banner['jsTrigger']) ?? null,
     countdownConfig: (row.countdown_config as unknown as Banner['countdownConfig']) ?? null,
-    sliderConfig:    (row.slider_config as unknown as Banner['sliderConfig'])       ?? null,
+    sliderConfig:    (row.slider_config as unknown as Banner['sliderConfig']) ?? null,
     isPublished:     row.is_published,
     allowedDomains:  row.allowed_domains,
     createdAt:       row.created_at,
@@ -47,63 +46,58 @@ function rowToBanner(row: BannerRow): Banner {
   };
 }
 
-async function writeAuditLog(
-  bannerId: string,
-  action: AuditLog['action'],
-  changes: Record<string, [unknown, unknown]>
-): Promise<void> {
+async function writeAuditLog(bannerId: string, action: AuditLog['action'], changes: Record<string,[unknown,unknown]>): Promise<void> {
   const db = getDb();
   const { error } = await db.from('banner_audit_logs').insert({
-    banner_id: bannerId, action,
-    changes: changes as Record<string, unknown>,
+    banner_id: bannerId, action, changes: changes as Record<string,unknown>,
   });
-  if (error) throw new Error(`[bannerService] Audit log write failed: ${error.message}`);
+  if (error) throw new Error(`[bannerService] Audit log failed: ${error.message}`);
 }
 
 export async function listBanners(): Promise<Banner[]> {
   const db = getDb();
-  const { data, error } = await db.from('banners').select('*').order('created_at', { ascending: false });
+  const { data, error } = await db.from('banners').select('*').order('created_at',{ascending:false});
   if (error) throw new Error(`[bannerService] listBanners: ${error.message}`);
   return (data ?? []).map(rowToBanner);
 }
 
-export async function getBannerById(id: string): Promise<Banner | null> {
+export async function getBannerById(id: string): Promise<Banner|null> {
   const db = getDb();
-  const { data, error } = await db.from('banners').select('*').eq('id', id).single();
+  const { data, error } = await db.from('banners').select('*').eq('id',id).single();
   if (error?.code === 'PGRST116') return null;
   if (error) throw new Error(`[bannerService] getBannerById: ${error.message}`);
   return data ? rowToBanner(data) : null;
 }
 
-export async function getBannerBySlug(slug: string): Promise<BannerPublicPayload | null> {
+export async function getBannerBySlug(slug: string): Promise<BannerPublicPayload|null> {
   const db = getDb();
-  const { data, error } = await db
-    .from('banners').select('*').eq('slug', slug).eq('is_published', true).single();
+  const { data, error } = await db.from('banners').select('*').eq('slug',slug).eq('is_published',true).single();
   if (error?.code === 'PGRST116') return null;
   if (error) throw new Error(`[bannerService] getBannerBySlug: ${error.message}`);
   if (!data) return null;
-  const banner = rowToBanner(data);
+  const b = rowToBanner(data);
   return {
-    slug:            banner.slug,
-    bannerStyles:    banner.bannerStyles,
-    content:         banner.content,
-    buttons:         banner.buttons,
-    buttonConfig:    banner.buttonConfig,
-    imageAssets:     banner.imageAssets,
-    jsTrigger:       banner.jsTrigger,
-    countdownConfig: banner.countdownConfig,
-    sliderConfig:    banner.sliderConfig,
+    slug:b.slug, bannerStyles:b.bannerStyles,
+    editorMode:b.editorMode, customHtml:b.customHtml,
+    translations:b.translations, supportedLangs:b.supportedLangs,
+    content:b.content, buttons:b.buttons, buttonConfig:b.buttonConfig,
+    imageAssets:b.imageAssets, jsTrigger:b.jsTrigger,
+    countdownConfig:b.countdownConfig, sliderConfig:b.sliderConfig,
   };
 }
 
 export async function createBanner(input: CreateBannerInput): Promise<Banner> {
   const db = getDb();
-  const slug = input.slug.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  const slug = input.slug.toLowerCase().replace(/[^a-z0-9-]/g,'-');
   const { data, error } = await db.from('banners').insert({
-    slug, name: input.name,
+    slug, name:input.name,
     banner_styles:    input.bannerStyles ?? '',
-    content:          toJsonbArray(input.content   ?? []),
-    buttons:          toJsonbArray(input.buttons   ?? []),
+    editor_mode:      input.editorMode ?? 'builder',
+    custom_html:      toJsonb(input.customHtml ?? {}),
+    translations:     toJsonb(input.translations ?? {}),
+    supported_langs:  input.supportedLangs ?? ['en','th'],
+    content:          toJsonbArray(input.content ?? []),
+    buttons:          toJsonbArray(input.buttons ?? []),
     button_config:    toJsonb(input.buttonConfig),
     image_assets:     toJsonb(input.imageAssets),
     js_trigger:       input.jsTrigger ?? null,
@@ -112,7 +106,7 @@ export async function createBanner(input: CreateBannerInput): Promise<Banner> {
     allowed_domains:  input.allowedDomains ?? [],
   }).select().single();
   if (error) throw new Error(`[bannerService] createBanner: ${error.message}`);
-  if (!data)  throw new Error('[bannerService] createBanner: no data returned');
+  if (!data)  throw new Error('[bannerService] createBanner: no data');
   await writeAuditLog(data.id, 'created', {});
   return rowToBanner(data);
 }
@@ -120,93 +114,84 @@ export async function createBanner(input: CreateBannerInput): Promise<Banner> {
 export async function updateBanner(id: string, input: UpdateBannerInput): Promise<Banner> {
   const db      = getDb();
   const current = await getBannerById(id);
-  if (!current) throw new Error(`[bannerService] updateBanner: banner ${id} not found`);
+  if (!current) throw new Error(`[bannerService] updateBanner: not found ${id}`);
 
-  const changes: Record<string, [unknown, unknown]> = {};
+  const changes: Record<string,[unknown,unknown]> = {};
   if (input.bannerStyles !== undefined && input.bannerStyles !== current.bannerStyles)
     changes['bannerStyles'] = [current.bannerStyles, input.bannerStyles];
-  if (input.content         !== undefined) changes['content']         = [current.content,         input.content];
-  if (input.buttons         !== undefined) changes['buttons']         = [current.buttons,         input.buttons];
-  if (input.buttonConfig    !== undefined) changes['buttonConfig']    = [current.buttonConfig,    input.buttonConfig];
-  if (input.imageAssets     !== undefined) changes['imageAssets']     = [current.imageAssets,     input.imageAssets];
-  if (input.jsTrigger       !== undefined) changes['jsTrigger']       = [current.jsTrigger,       input.jsTrigger];
+  if (input.editorMode    !== undefined) changes['editorMode']    = [current.editorMode,    input.editorMode];
+  if (input.customHtml    !== undefined) changes['customHtml']    = [current.customHtml,    input.customHtml];
+  if (input.translations  !== undefined) changes['translations']  = [current.translations,  input.translations];
+  if (input.content       !== undefined) changes['content']       = [current.content,       input.content];
+  if (input.buttons       !== undefined) changes['buttons']       = [current.buttons,       input.buttons];
+  if (input.jsTrigger     !== undefined) changes['jsTrigger']     = [current.jsTrigger,     input.jsTrigger];
   if (input.countdownConfig !== undefined) changes['countdownConfig'] = [current.countdownConfig, input.countdownConfig];
-  if (input.sliderConfig    !== undefined) changes['sliderConfig']    = [current.sliderConfig,    input.sliderConfig];
+  if (input.sliderConfig  !== undefined) changes['sliderConfig']  = [current.sliderConfig,  input.sliderConfig];
 
   await writeAuditLog(id, 'updated', changes);
 
-  const slug = input.slug ? input.slug.toLowerCase().replace(/[^a-z0-9-]/g, '-') : undefined;
-
   const { data, error } = await db.from('banners').update({
-    ...(slug                      && { slug }),
-    ...(input.name                && { name: input.name }),
-    ...(input.bannerStyles    !== undefined && { banner_styles:    input.bannerStyles }),
-    ...(input.content         !== undefined && { content:          toJsonbArray(input.content) }),
-    ...(input.buttons         !== undefined && { buttons:          toJsonbArray(input.buttons) }),
-    ...(input.buttonConfig    !== undefined && { button_config:    toJsonb(input.buttonConfig) }),
-    ...(input.imageAssets     !== undefined && { image_assets:     toJsonb(input.imageAssets) }),
-    ...(input.jsTrigger       !== undefined && { js_trigger:       input.jsTrigger }),
-    ...(input.countdownConfig !== undefined && { countdown_config: toJsonb(input.countdownConfig) }),
-    ...(input.sliderConfig    !== undefined && { slider_config:    toJsonb(input.sliderConfig) }),
-    ...(input.allowedDomains  !== undefined && { allowed_domains:  input.allowedDomains }),
-  }).eq('id', id).select().single();
-
+    ...(input.name               && { name:           input.name }),
+    ...(input.bannerStyles   !== undefined && { banner_styles:    input.bannerStyles }),
+    ...(input.editorMode     !== undefined && { editor_mode:      input.editorMode }),
+    ...(input.customHtml     !== undefined && { custom_html:      toJsonb(input.customHtml) }),
+    ...(input.translations   !== undefined && { translations:     toJsonb(input.translations) }),
+    ...(input.supportedLangs !== undefined && { supported_langs:  input.supportedLangs }),
+    ...(input.content        !== undefined && { content:          toJsonbArray(input.content) }),
+    ...(input.buttons        !== undefined && { buttons:          toJsonbArray(input.buttons) }),
+    ...(input.buttonConfig   !== undefined && { button_config:    toJsonb(input.buttonConfig) }),
+    ...(input.imageAssets    !== undefined && { image_assets:     toJsonb(input.imageAssets) }),
+    ...(input.jsTrigger      !== undefined && { js_trigger:       input.jsTrigger }),
+    ...(input.countdownConfig!== undefined && { countdown_config: toJsonb(input.countdownConfig) }),
+    ...(input.sliderConfig   !== undefined && { slider_config:    toJsonb(input.sliderConfig) }),
+    ...(input.allowedDomains !== undefined && { allowed_domains:  input.allowedDomains }),
+  }).eq('id',id).select().single();
   if (error) throw new Error(`[bannerService] updateBanner: ${error.message}`);
-  if (!data)  throw new Error('[bannerService] updateBanner: no data returned');
+  if (!data)  throw new Error('[bannerService] updateBanner: no data');
   return rowToBanner(data);
 }
 
 export async function publishBanner(id: string): Promise<Banner> {
-  const db      = getDb();
+  const db = getDb();
   const current = await getBannerById(id);
-  if (!current) throw new Error(`[bannerService] publishBanner: banner ${id} not found`);
-  await writeAuditLog(id, 'published', {
-    isPublished: [false, true],
-    publishedAt: [current.publishedAt, new Date().toISOString()],
-  });
-  const { data, error } = await db.from('banners')
-    .update({ is_published: true, published_at: new Date().toISOString() })
-    .eq('id', id).select().single();
-  if (error) throw new Error(`[bannerService] publishBanner: ${error.message}`);
-  if (!data)  throw new Error('[bannerService] publishBanner: no data returned');
+  if (!current) throw new Error(`publishBanner: not found ${id}`);
+  await writeAuditLog(id,'published',{isPublished:[false,true],publishedAt:[current.publishedAt,new Date().toISOString()]});
+  const {data,error} = await db.from('banners').update({is_published:true,published_at:new Date().toISOString()}).eq('id',id).select().single();
+  if (error) throw new Error(`publishBanner: ${error.message}`);
+  if (!data)  throw new Error('publishBanner: no data');
   await purgeBannerCache(current.slug);
   return rowToBanner(data);
 }
 
 export async function unpublishBanner(id: string): Promise<Banner> {
   const db = getDb();
-  await writeAuditLog(id, 'unpublished', { isPublished: [true, false] });
-  const { data, error } = await db.from('banners')
-    .update({ is_published: false }).eq('id', id).select().single();
-  if (error) throw new Error(`[bannerService] unpublishBanner: ${error.message}`);
-  if (!data)  throw new Error('[bannerService] unpublishBanner: no data returned');
+  await writeAuditLog(id,'unpublished',{isPublished:[true,false]});
+  const {data,error} = await db.from('banners').update({is_published:false}).eq('id',id).select().single();
+  if (error) throw new Error(`unpublishBanner: ${error.message}`);
+  if (!data)  throw new Error('unpublishBanner: no data');
   const banner = rowToBanner(data);
   await purgeBannerCache(banner.slug);
   return banner;
 }
 
 export async function deleteBanner(id: string): Promise<void> {
-  const db      = getDb();
+  const db = getDb();
   const current = await getBannerById(id);
-  if (!current) throw new Error(`[bannerService] deleteBanner: banner ${id} not found`);
-  await writeAuditLog(id, 'deleted', { slug: [current.slug, null], name: [current.name, null] });
-  const { error } = await db.from('banners').delete().eq('id', id);
-  if (error) throw new Error(`[bannerService] deleteBanner: ${error.message}`);
+  if (!current) throw new Error(`deleteBanner: not found ${id}`);
+  await writeAuditLog(id,'deleted',{slug:[current.slug,null],name:[current.name,null]});
+  const {error} = await db.from('banners').delete().eq('id',id);
+  if (error) throw new Error(`deleteBanner: ${error.message}`);
   await purgeBannerCache(current.slug);
 }
 
 export async function getAuditLogs(bannerId: string): Promise<AuditLog[]> {
   const db = getDb();
-  const { data, error } = await db
-    .from('banner_audit_logs').select('*')
-    .eq('banner_id', bannerId)
-    .order('created_at', { ascending: false }).limit(50);
-  if (error) throw new Error(`[bannerService] getAuditLogs: ${error.message}`);
-  return (data ?? []).map(row => ({
-    id:        row.id,
-    bannerId:  row.banner_id ?? '',
-    action:    row.action as AuditLog['action'],
-    changes:   (row.changes as AuditLog['changes']) ?? {},
-    createdAt: row.created_at,
+  const {data,error} = await db.from('banner_audit_logs').select('*').eq('banner_id',bannerId).order('created_at',{ascending:false}).limit(50);
+  if (error) throw new Error(`getAuditLogs: ${error.message}`);
+  return (data??[]).map(row=>({
+    id:row.id, bannerId:row.banner_id??'',
+    action:row.action as AuditLog['action'],
+    changes:(row.changes as AuditLog['changes'])??{},
+    createdAt:row.created_at,
   }));
 }

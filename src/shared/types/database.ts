@@ -1,21 +1,17 @@
-// Path:    src/shared/types/database.ts
-// Purpose: Supabase generated DB types (run: npx supabase gen types typescript).
-//          Updated for v2: content blocks + multiple buttons.
-// Used by: db.ts
-
+// Path: src/shared/types/database.ts — v3: i18n columns
 export interface Database {
   public: {
     Tables: {
       banners: {
         Row: {
-          id:               string;
-          slug:             string;
-          name:             string;
+          id: string; slug: string; name: string;
           banner_styles:    string | null;
-          // v2
+          editor_mode:      string | null;
+          custom_html:      Record<string, unknown> | null;
+          translations:     Record<string, unknown> | null;
+          supported_langs:  string[] | null;
           content:          Record<string, unknown>[] | null;
           buttons:          Record<string, unknown>[] | null;
-          // legacy
           button_config:    Record<string, unknown> | null;
           image_assets:     Record<string, unknown> | null;
           js_trigger:       string | null;
@@ -28,10 +24,12 @@ export interface Database {
           published_at:     string | null;
         };
         Insert: {
-          id?:               string;
-          slug:              string;
-          name:              string;
+          id?: string; slug: string; name: string;
           banner_styles?:    string | null;
+          editor_mode?:      string | null;
+          custom_html?:      Record<string, unknown> | null;
+          translations?:     Record<string, unknown> | null;
+          supported_langs?:  string[] | null;
           content?:          Record<string, unknown>[] | null;
           buttons?:          Record<string, unknown>[] | null;
           button_config?:    Record<string, unknown> | null;
@@ -44,10 +42,12 @@ export interface Database {
           published_at?:     string | null;
         };
         Update: {
-          id?:               string;
-          slug?:             string;
-          name?:             string;
+          id?: string; slug?: string; name?: string;
           banner_styles?:    string | null;
+          editor_mode?:      string | null;
+          custom_html?:      Record<string, unknown> | null;
+          translations?:     Record<string, unknown> | null;
+          supported_langs?:  string[] | null;
           content?:          Record<string, unknown>[] | null;
           buttons?:          Record<string, unknown>[] | null;
           button_config?:    Record<string, unknown> | null;
@@ -62,31 +62,13 @@ export interface Database {
         Relationships: [];
       };
       banner_audit_logs: {
-        Row: {
-          id:         string;
-          banner_id:  string | null;
-          action:     string;
-          changes:    Record<string, unknown> | null;
-          created_at: string;
-        };
-        Insert: {
-          id?:        string;
-          banner_id?: string | null;
-          action:     string;
-          changes?:   Record<string, unknown> | null;
-        };
-        Update: {
-          id?:        string;
-          banner_id?: string | null;
-          action?:    string;
-          changes?:   Record<string, unknown> | null;
-        };
+        Row: { id: string; banner_id: string|null; action: string; changes: Record<string,unknown>|null; created_at: string; };
+        Insert: { id?: string; banner_id?: string|null; action: string; changes?: Record<string,unknown>|null; };
+        Update: { id?: string; banner_id?: string|null; action?: string; changes?: Record<string,unknown>|null; };
         Relationships: [];
       };
     };
-    Views:          Record<string, never>;
-    Functions:      Record<string, never>;
-    Enums:          Record<string, never>;
-    CompositeTypes: Record<string, never>;
+    Views: Record<string,never>; Functions: Record<string,never>;
+    Enums: Record<string,never>; CompositeTypes: Record<string,never>;
   };
 }

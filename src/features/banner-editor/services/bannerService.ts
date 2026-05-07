@@ -4,6 +4,7 @@
  * Service layer สำหรับ Banner — ให้ named exports ที่โค้ดอื่นคาดหวัง
  * - ใช้ in-memory store เป็นค่าเริ่มต้น (สามารถเปลี่ยนเป็น DB client ได้)
  * - แปลง customCss / frameworkImports ให้ตรงชนิดของ BannerPublicPayload
+ * - เพิ่มฟิลด์ `name` ใน Banner เพื่อรองรับโค้ด UI ที่เข้าถึง banner.name
  */
 
 /* ================== Types ================== */
@@ -22,15 +23,19 @@ export interface BannerTranslations {
   };
 }
 
+/**
+ * Banner: โครงสร้างข้อมูลภายใน service/DB
+ * - เพิ่ม `name` ที่ UI ใช้งาน
+ * - customCss / frameworkImports ยังคงรองรับหลายรูปแบบ (string, map, array)
+ */
 export interface Banner {
-  id?: string; // internal id (optional when creating)
+  id?: string;
   slug: string;
+  name?: string; // เพิ่มฟิลด์นี้ (UI เข้าถึง banner.name)
   bannerStyles: string;
   editorMode: EditorMode;
   customHtml: Record<string, string>;
-  // customCss stored either as single string or per-lang map
   customCss?: string | Record<string, string> | undefined;
-  // frameworkImports may be various shapes
   frameworkImports?: string | string[] | Record<string, string> | undefined;
   translations: BannerTranslations;
   supportedLangs: string[];
@@ -38,7 +43,6 @@ export interface Banner {
   defaultLang?: string;
   createdAt?: string;
   updatedAt?: string;
-  // published flag for this in-memory store (not required everywhere)
   published?: boolean;
 }
 
@@ -131,11 +135,6 @@ export function draftToPayload(draft: Banner): BannerPublicPayload {
 
 /* ================== In-memory store (placeholder) ================== */
 
-/**
- * NOTE:
- * - Store นี้แค่เพื่อให้การคอมไพล์และการทดสอบทำงานได้
- * - แทนที่ด้วยการเชื่อมต่อ DB (Supabase/Prisma/pg) เมื่อพร้อม
- */
 const bannersStore = new Map<string, Banner>();
 
 function makeId(): string {
@@ -162,13 +161,17 @@ export async function getBannerBySlug(slug: string): Promise<Banner | null> {
   return null;
 }
 
-/** สร้าง banner ใหม่ */
+/**
+ * สร้าง banner ใหม่
+ * - ตั้งค่า `name` เป็น payload.name หากมี, ถ้าไม่มีก็ใช้ slug เป็นค่าเริ่มต้น
+ */
 export async function createBanner(payload: Partial<Banner>): Promise<Banner> {
   const id = payload.id ?? makeId();
   const now = nowIso();
   const banner: Banner = {
     id,
     slug: payload.slug ?? `untitled-${id}`,
+    name: payload.name ?? payload.slug ?? `untitled-${id}`, // ตั้งชื่อเริ่มต้น
     bannerStyles: payload.bannerStyles ?? '',
     editorMode: payload.editorMode ?? 'builder',
     customHtml: payload.customHtml ?? {},
@@ -194,6 +197,8 @@ export async function updateBanner(id: string, patch: Partial<Banner>): Promise<
     ...existing,
     ...patch,
     id: existing.id,
+    // ถ้า patch ส่ง name มา ให้ใช้ patch.name; ถ้าไม่มีก็เก็บ existing.name ไว้
+    name: patch.name ?? existing.name,
     updatedAt: nowIso(),
   };
   bannersStore.set(id, updated);
@@ -207,20 +212,11 @@ export async function deleteBanner(id: string): Promise<boolean> {
 
 /** ดึง audit logs — placeholder คืน array ว่าง (ปรับเชื่อมกับระบบจริงได้) */
 export async function getAuditLogs(id: string): Promise<Array<{ when: string; by?: string; action: string; meta?: any }>> {
-  // ในโค้ดจริง ให้เชื่อมกับ table/audit log หรือ service ที่เกี่ยวข้อง
-  return [
-    // ตัวอย่าง:
-    // { when: nowIso(), by: 'system', action: 'created', meta: { id } }
-  ];
+  return [];
 }
 
 /* ================== Publishing ================== */
 
-/**
- * publishBanner:
- * - ทำเครื่องหมายว่า published = true
- * - คืน BannerPublicPayload ที่แปลงแล้ว
- */
 export async function publishBanner(id: string): Promise<BannerPublicPayload | null> {
   const b = bannersStore.get(id);
   if (!b) return null;
@@ -229,7 +225,6 @@ export async function publishBanner(id: string): Promise<BannerPublicPayload | n
   return bannerToPublicPayload(updated);
 }
 
-/** unpublishBanner: ทำเครื่องหมาย published = false */
 export async function unpublishBanner(id: string): Promise<boolean> {
   const b = bannersStore.get(id);
   if (!b) return false;

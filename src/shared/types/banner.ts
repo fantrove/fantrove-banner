@@ -105,21 +105,18 @@ export interface Banner {
 
 // ── BannerPublicPayload ───────────────────────────────────────────────────────
 export interface BannerPublicPayload {
-  slug:             string;
-  bannerStyles:     string;
-  editorMode:       EditorMode;
-  customHtml:       Record<string, string>;
-  customCss:        Record<string, string>;
-  frameworkImports: FrameworkImport[];
-  translations:     BannerTranslations;
-  supportedLangs:   string[];
-  content:          ContentBlock[];
-  buttons:          ButtonConfig[];
-  buttonConfig:     ButtonConfig | null;
-  imageAssets:      ImageAssets | null;
-  jsTrigger:        JsTriggerPreset | null;
-  countdownConfig:  CountdownConfig | null;
-  sliderConfig:     SliderConfig | null;
+  slug: string;
+  bannerStyles: string;
+  editorMode: 'builder' | 'html' | 'full';
+  customHtml: Record<string, string>;
+  translations: BannerTranslations;
+  supportedLangs: string[];
+  sliderConfig: SliderConfig | null;
+  customCss: string;
+  frameworkImports: string[];
+  // เพิ่มสองฟิลด์นี้เป็น optional/required ตามต้องการ
+  createdAt?: string;   // หรือ Date | number ขึ้นกับที่ใช้ในโปรเจค
+  updatedAt?: string;
 }
 
 // ── Create / Update ───────────────────────────────────────────────────────────

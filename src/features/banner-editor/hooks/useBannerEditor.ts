@@ -1,14 +1,15 @@
 // Path: src/features/banner-editor/hooks/useBannerEditor.ts
-// Purpose: Editor state. v4: adds customCss + frameworkImports for 'full' mode.
+// Purpose: Editor state. v5: 2 modes, builder→html conversion on mode switch.
 
 'use client';
 
 import { useState, useCallback } from 'react';
+import { convertBuilderToHtml }  from '@/shared/lib/bannerTemplate';
 import type {
   Banner, CreateBannerInput, UpdateBannerInput,
   ButtonConfig, ContentBlock, ImageAssets,
   CountdownConfig, SliderConfig, JsTriggerPreset,
-  BannerTranslations, FrameworkImport, EditorMode,
+  BannerTranslations, EditorMode, BannerPublicPayload,
 } from '@/shared/types/banner';
 
 async function adminFetch(path: string, opts?: RequestInit) {
@@ -25,54 +26,67 @@ async function adminFetch(path: string, opts?: RequestInit) {
 }
 
 export interface EditorDraft {
-  slug:             string;
-  name:             string;
-  bannerStyles:     string;
-  editorMode:       EditorMode;
-  // html + full mode: lang → raw HTML
-  customHtml:       Record<string, string>;
-  // full mode only: lang → raw CSS (not scoped)
-  customCss:        Record<string, string>;
-  // full mode only
-  frameworkImports: FrameworkImport[];
-  translations:     BannerTranslations;
-  supportedLangs:   string[];
-  // builder mode
-  content:          ContentBlock[];
-  buttons:          ButtonConfig[];
-  buttonConfig:     ButtonConfig | null;
-  imageAssets:      ImageAssets | null;
-  jsTrigger:        JsTriggerPreset | null;
-  countdownConfig:  CountdownConfig | null;
-  sliderConfig:     SliderConfig | null;
-  allowedDomains:   string[];
+  slug:            string;
+  name:            string;
+  bannerStyles:    string;
+  editorMode:      EditorMode;
+  customHtml:      Record<string, string>;
+  customCss:       Record<string, string>;
+  translations:    BannerTranslations;
+  supportedLangs:  string[];
+  content:         ContentBlock[];
+  buttons:         ButtonConfig[];
+  buttonConfig:    ButtonConfig | null;
+  imageAssets:     ImageAssets | null;
+  jsTrigger:       JsTriggerPreset | null;
+  countdownConfig: CountdownConfig | null;
+  sliderConfig:    SliderConfig | null;
+  allowedDomains:  string[];
 }
 
 function bannerToDraft(b: Banner): EditorDraft {
   return {
-    slug:             b.slug,
-    name:             b.name,
-    bannerStyles:     b.bannerStyles,
-    editorMode:       b.editorMode ?? 'builder',
-    customHtml:       b.customHtml ?? {},
-    customCss:        b.customCss  ?? {},
-    frameworkImports: b.frameworkImports ?? [],
-    translations:     b.translations ?? {},
-    supportedLangs:   b.supportedLangs?.length ? b.supportedLangs : ['en', 'th'],
-    content:          b.content ?? [],
-    buttons:          b.buttons ?? [],
-    buttonConfig:     b.buttonConfig,
-    imageAssets:      b.imageAssets,
-    jsTrigger:        b.jsTrigger,
-    countdownConfig:  b.countdownConfig,
-    sliderConfig:     b.sliderConfig,
-    allowedDomains:   b.allowedDomains,
+    slug:            b.slug,
+    name:            b.name,
+    bannerStyles:    b.bannerStyles,
+    editorMode:      b.editorMode ?? 'builder',
+    customHtml:      b.customHtml ?? {},
+    customCss:       b.customCss  ?? {},
+    translations:    b.translations ?? {},
+    supportedLangs:  b.supportedLangs?.length ? b.supportedLangs : ['en', 'th'],
+    content:         b.content ?? [],
+    buttons:         b.buttons ?? [],
+    buttonConfig:    b.buttonConfig,
+    imageAssets:     b.imageAssets,
+    jsTrigger:       b.jsTrigger,
+    countdownConfig: b.countdownConfig,
+    sliderConfig:    b.sliderConfig,
+    allowedDomains:  b.allowedDomains,
+  };
+}
+
+function draftToPayload(d: EditorDraft): BannerPublicPayload {
+  return {
+    slug:            d.slug,
+    bannerStyles:    d.bannerStyles,
+    editorMode:      d.editorMode,
+    customHtml:      d.customHtml,
+    customCss:       d.customCss,
+    translations:    d.translations,
+    supportedLangs:  d.supportedLangs,
+    content:         d.content,
+    buttons:         d.buttons,
+    buttonConfig:    d.buttonConfig,
+    imageAssets:     d.imageAssets,
+    jsTrigger:       d.jsTrigger,
+    countdownConfig: d.countdownConfig,
+    sliderConfig:    d.sliderConfig,
   };
 }
 
 const emptyDraft = (): EditorDraft => ({
   slug:'', name:'', bannerStyles:'',
-  editorMode:'builder', customHtml:{}, customCss:{}, frameworkImports:[],
+  editorMode:'builder', customHtml:{}, customCss:{},
   translations:{}, supportedLangs:['en','th'],
   content:[], buttons:[], buttonConfig:null, imageAssets:null,
   jsTrigger:null, countdownConfig:null, sliderConfig:null, allowedDomains:[],
@@ -91,45 +105,55 @@ export function useBannerEditor(initial?: Banner) {
     setError(null);
   }, []);
 
-  const setContent              = useCallback((v: ContentBlock[])        => updateField('content', v),          [updateField]);
-  const setButtons              = useCallback((v: ButtonConfig[])        => updateField('buttons', v),          [updateField]);
-  const setButtonConfig         = useCallback((v: ButtonConfig|null)     => updateField('buttonConfig', v),     [updateField]);
-  const setImageAssets          = useCallback((v: ImageAssets|null)      => updateField('imageAssets', v),      [updateField]);
-  const setJsTrigger            = useCallback((v: JsTriggerPreset|null)  => updateField('jsTrigger', v),        [updateField]);
-  const setCountdownConfig      = useCallback((v: CountdownConfig|null)  => updateField('countdownConfig', v),  [updateField]);
-  const setSliderConfig         = useCallback((v: SliderConfig|null)     => updateField('sliderConfig', v),     [updateField]);
-  const setBannerStyles         = useCallback((v: string)                => updateField('bannerStyles', v),     [updateField]);
-  const setCustomHtml           = useCallback((v: Record<string,string>) => updateField('customHtml', v),       [updateField]);
-  const setCustomCss            = useCallback((v: Record<string,string>) => updateField('customCss', v),        [updateField]);
-  const setTranslations         = useCallback((v: BannerTranslations)    => updateField('translations', v),     [updateField]);
-  const setFrameworkImports     = useCallback((v: FrameworkImport[])     => updateField('frameworkImports', v), [updateField]);
-  const setEditorMode           = useCallback((v: EditorMode)            => updateField('editorMode', v),       [updateField]);
+  // ── Mode switch with builder→html conversion ──────────────────────────────
+  const setEditorMode = useCallback((nextMode: EditorMode) => {
+    setDraft(current => {
+      // Builder → HTML: generate HTML from current builder state for all langs
+      if (current.editorMode === 'builder' && nextMode === 'html') {
+        const langs = current.supportedLangs?.length ? current.supportedLangs : ['en','th'];
+        const payload = draftToPayload(current);
+        const { html, css } = convertBuilderToHtml(payload, langs);
+        return { ...current, editorMode: nextMode, customHtml: html, customCss: css };
+      }
+      // HTML → Builder: just switch mode; builder state (content/buttons etc.) is preserved
+      return { ...current, editorMode: nextMode };
+    });
+    setError(null);
+  }, []);
+
+  const setContent         = useCallback((v: ContentBlock[])       => updateField('content', v),         [updateField]);
+  const setButtons         = useCallback((v: ButtonConfig[])       => updateField('buttons', v),         [updateField]);
+  const setButtonConfig    = useCallback((v: ButtonConfig|null)    => updateField('buttonConfig', v),    [updateField]);
+  const setImageAssets     = useCallback((v: ImageAssets|null)     => updateField('imageAssets', v),     [updateField]);
+  const setJsTrigger       = useCallback((v: JsTriggerPreset|null) => updateField('jsTrigger', v),       [updateField]);
+  const setCountdownConfig = useCallback((v: CountdownConfig|null) => updateField('countdownConfig', v), [updateField]);
+  const setSliderConfig    = useCallback((v: SliderConfig|null)    => updateField('sliderConfig', v),    [updateField]);
+  const setBannerStyles    = useCallback((v: string)               => updateField('bannerStyles', v),    [updateField]);
+  const setCustomHtml      = useCallback((v: Record<string,string>) => updateField('customHtml', v),     [updateField]);
+  const setCustomCss       = useCallback((v: Record<string,string>) => updateField('customCss', v),      [updateField]);
+  const setTranslations    = useCallback((v: BannerTranslations)   => updateField('translations', v),    [updateField]);
 
   const save = useCallback(async (): Promise<boolean> => {
     setSaving(true); setError(null);
     try {
-      if (!draft.slug || !draft.name) {
-        setError('Slug and name are required.');
-        return false;
-      }
+      if (!draft.slug || !draft.name) { setError('Slug and name are required.'); return false; }
       const body: CreateBannerInput | UpdateBannerInput = {
         ...(saved ? {} : { slug: draft.slug }),
-        name:             draft.name,
-        bannerStyles:     draft.bannerStyles,
-        editorMode:       draft.editorMode,
-        customHtml:       draft.customHtml,
-        customCss:        draft.customCss,
-        frameworkImports: draft.frameworkImports,
-        translations:     draft.translations,
-        supportedLangs:   draft.supportedLangs,
-        content:          draft.content,
-        buttons:          draft.buttons,
-        buttonConfig:     draft.buttonConfig,
-        imageAssets:      draft.imageAssets,
-        jsTrigger:        draft.jsTrigger,
-        countdownConfig:  draft.countdownConfig,
-        sliderConfig:     draft.sliderConfig,
-        allowedDomains:   draft.allowedDomains,
+        name:            draft.name,
+        bannerStyles:    draft.bannerStyles,
+        editorMode:      draft.editorMode,
+        customHtml:      draft.customHtml,
+        customCss:       draft.customCss,
+        translations:    draft.translations,
+        supportedLangs:  draft.supportedLangs,
+        content:         draft.content,
+        buttons:         draft.buttons,
+        buttonConfig:    draft.buttonConfig,
+        imageAssets:     draft.imageAssets,
+        jsTrigger:       draft.jsTrigger,
+        countdownConfig: draft.countdownConfig,
+        sliderConfig:    draft.sliderConfig,
+        allowedDomains:  draft.allowedDomains,
       };
       const result = await adminFetch(
         saved ? `/api/banners/${saved.id}` : '/api/banners',
@@ -142,9 +166,7 @@ export function useBannerEditor(initial?: Banner) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
       return false;
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   }, [draft, saved]);
 
   const publish = useCallback(async (): Promise<boolean> => {
@@ -154,9 +176,8 @@ export function useBannerEditor(initial?: Banner) {
       const result = await adminFetch(`/api/publish/${saved.id}`, { method: 'POST' });
       if (!result.ok) { setError(result.error ?? 'Publish failed'); return false; }
       setSaved(result.data); return true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Publish failed'); return false;
-    } finally { setPublishing(false); }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Publish failed'); return false; }
+    finally { setPublishing(false); }
   }, [saved]);
 
   const unpublish = useCallback(async (): Promise<boolean> => {
@@ -166,9 +187,8 @@ export function useBannerEditor(initial?: Banner) {
       const result = await adminFetch(`/api/publish/${saved.id}`, { method: 'DELETE' });
       if (!result.ok) { setError(result.error ?? 'Unpublish failed'); return false; }
       setSaved(result.data); return true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unpublish failed'); return false;
-    } finally { setPublishing(false); }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Unpublish failed'); return false; }
+    finally { setPublishing(false); }
   }, [saved]);
 
   const isDirty = saved
@@ -178,11 +198,10 @@ export function useBannerEditor(initial?: Banner) {
   return {
     saved, draft, activeLang, setActiveLang,
     saving, publishing, error, isDirty,
-    updateField, setBannerStyles,
+    updateField, setBannerStyles, setEditorMode,
     setContent, setButtons, setButtonConfig, setImageAssets,
     setJsTrigger, setCountdownConfig, setSliderConfig,
     setCustomHtml, setCustomCss, setTranslations,
-    setFrameworkImports, setEditorMode,
     save, publish, unpublish,
   };
 }

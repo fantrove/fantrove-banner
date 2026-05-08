@@ -1,12 +1,11 @@
 // Path: src/features/banner-editor/components/BannerEditor.tsx
-// Purpose: Main editor — v4 mobile-first.
-//          Mobile: tab-based panel switching (Edit ↔ Preview).
-//          Desktop: side-by-side layout.
-//          Modes: Builder | HTML | Full.
+// Purpose: Main editor v5 — 2 modes (Builder | HTML), mobile-first.
+//   Switching Builder→HTML generates HTML from current builder state.
+//   Switching HTML→Builder restores builder controls (state preserved separately).
 
 'use client';
 
-import { useState } from 'react';
+import { useState }                     from 'react';
 import type { Banner, EditorMode }       from '@/shared/types/banner';
 import { useBannerEditor }               from '../hooks/useBannerEditor';
 import { ContentBlockEditor }            from './ContentBlockEditor';
@@ -15,26 +14,18 @@ import { CountdownEditor }               from './CountdownEditor';
 import { SliderEditor }                  from './SliderEditor';
 import { StylePicker, JsTriggerPicker }  from './StylePicker';
 import { LivePreview }                   from './LivePreview';
-import { HtmlModeEditor }                from './HtmlModeEditor';
 import { FullHtmlEditor }                from './FullHtmlEditor';
 
 interface Props { initial?: Banner; onSaved?: (b: Banner) => void }
-
-const MODE_LABELS: Record<EditorMode, string> = {
-  builder: '🧱 Builder',
-  html:    '</> HTML',
-  full:    '🔓 Full',
-};
 
 export function BannerEditor({ initial, onSaved }: Props) {
   const {
     saved, draft, activeLang, setActiveLang,
     saving, publishing, error, isDirty,
-    updateField, setBannerStyles,
+    updateField, setBannerStyles, setEditorMode,
     setContent, setButtons, setJsTrigger,
     setCountdownConfig, setSliderConfig,
     setCustomHtml, setCustomCss, setTranslations,
-    setFrameworkImports, setEditorMode,
     save, publish, unpublish,
   } = useBannerEditor(initial);
 
@@ -45,11 +36,14 @@ export function BannerEditor({ initial, onSaved }: Props) {
     if (ok && saved && onSaved) onSaved(saved);
   }
 
-  const langs     = draft.supportedLangs?.length ? draft.supportedLangs : ['en', 'th'];
-  const mode      = draft.editorMode;
-  const isBuilder = mode === 'builder';
-  const isHtml    = mode === 'html';
-  const isFull    = mode === 'full';
+  const langs      = draft.supportedLangs?.length ? draft.supportedLangs : ['en', 'th'];
+  const isBuilder  = draft.editorMode === 'builder';
+  const isHtml     = draft.editorMode === 'html';
+
+  const MODE_INFO: Record<EditorMode, { label: string; hint: string }> = {
+    builder: { label: '🧱 Builder', hint: 'ออกแบบผ่าน UI' },
+    html:    { label: '</> HTML',   hint: 'เขียน HTML+CSS จาก root' },
+  };
 
   return (
     <div className="editor-root">
@@ -67,31 +61,22 @@ export function BannerEditor({ initial, onSaved }: Props) {
           )}
           {isDirty && <span className="unsaved-dot" title="Unsaved">●</span>}
 
-          {/* Dropdown — shown on very small screens */}
-          <select
-            className="mode-select-mobile"
-            value={mode}
-            onChange={e => setEditorMode(e.target.value as EditorMode)}
-            aria-label="Editor mode"
-          >
-            {(Object.keys(MODE_LABELS) as EditorMode[]).map(m => (
-              <option key={m} value={m}>{MODE_LABELS[m]}</option>
-            ))}
-          </select>
-
-          {/* Toggle tabs — hidden on very small screens via CSS */}
+          {/* Mode toggle */}
           <div className="mode-toggle mode-toggle-inline">
-            {(Object.keys(MODE_LABELS) as EditorMode[]).map(m => (
-              <button
-                key={m}
-                type="button"
-                className={`mode-btn ${mode === m ? 'mode-btn--active' : ''}`}
+            {(['builder','html'] as EditorMode[]).map(m => (
+              <button key={m} type="button"
+                className={`mode-btn ${draft.editorMode === m ? 'mode-btn--active' : ''}`}
                 onClick={() => setEditorMode(m)}
-              >
-                {MODE_LABELS[m]}
+                title={MODE_INFO[m].hint}>
+                {MODE_INFO[m].label}
               </button>
             ))}
           </div>
+
+          {/* Conversion hint */}
+          {isHtml && Object.keys(draft.customHtml).length > 0 && (
+            <span className="mode-chip mode-chip--html">HTML</span>
+          )}
         </div>
 
         <div className="editor-topbar-right">
@@ -117,22 +102,18 @@ export function BannerEditor({ initial, onSaved }: Props) {
         </div>
       </div>
 
-      {/* ── Mobile panel tabs (hidden on lg+ via CSS) ────────────── */}
+      {/* ── Mobile panel tabs ────────────────────────────────────── */}
       <div className="mobile-panel-tabs" role="tablist">
-        <button
-          type="button" role="tab"
+        <button type="button" role="tab"
           aria-selected={mobilePanel === 'edit'}
           className={`mobile-panel-tab ${mobilePanel === 'edit' ? 'mobile-panel-tab--active' : ''}`}
-          onClick={() => setMobilePanel('edit')}
-        >
+          onClick={() => setMobilePanel('edit')}>
           ✏️ Edit
         </button>
-        <button
-          type="button" role="tab"
+        <button type="button" role="tab"
           aria-selected={mobilePanel === 'preview'}
           className={`mobile-panel-tab ${mobilePanel === 'preview' ? 'mobile-panel-tab--active' : ''}`}
-          onClick={() => setMobilePanel('preview')}
-        >
+          onClick={() => setMobilePanel('preview')}>
           👁 Preview
         </button>
       </div>
@@ -140,11 +121,10 @@ export function BannerEditor({ initial, onSaved }: Props) {
       {/* ── Main layout ─────────────────────────────────────────── */}
       <div className="editor-layout">
 
-        {/* Controls — hidden on mobile when preview tab is active */}
-        <div
-          className="editor-controls"
-          style={{ display: mobilePanel === 'preview' ? 'none' : undefined }}
-        >
+        {/* ── Controls panel ──────────────────────────────────── */}
+        <div className="editor-controls"
+          style={{ display: mobilePanel === 'preview' ? 'none' : undefined }}>
+
           {/* Language tabs */}
           <div style={{ display:'flex', gap:4, padding:'10px 16px 0', borderBottom:'1px solid var(--border)', flexWrap:'wrap' }}>
             {langs.map(l => (
@@ -164,7 +144,7 @@ export function BannerEditor({ initial, onSaved }: Props) {
             </button>
           </div>
 
-          {/* Meta */}
+          {/* Banner meta */}
           <div className="component-section">
             <div className="section-header">
               <label className="section-label"><span className="section-icon">📋</span>Banner Info</label>
@@ -179,8 +159,8 @@ export function BannerEditor({ initial, onSaved }: Props) {
               <div className="field-row">
                 <label className="field-label">Slug</label>
                 <input className="field-input" type="text" value={draft.slug}
-                  placeholder="welcome-banner" maxLength={60} autoComplete="off"
-                  inputMode="url" disabled={!!saved}
+                  placeholder="welcome-banner" maxLength={60} disabled={!!saved}
+                  inputMode="url" autoComplete="off"
                   onChange={e => updateField('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g,'-'))} />
                 {saved && (
                   <span className="field-hint">Public: <code>/api/public/banners/{draft.slug}</code></span>
@@ -197,36 +177,18 @@ export function BannerEditor({ initial, onSaved }: Props) {
             </div>
           </div>
 
-          {/* ── FULL MODE ─────────────────────────────────────── */}
-          {isFull && (
+          {/* ── HTML MODE ────────────────────────────────────── */}
+          {isHtml && (
             <FullHtmlEditor
               html={draft.customHtml}
               css={draft.customCss}
               translations={draft.translations}
-              frameworkImports={draft.frameworkImports}
               langs={langs}
               activeLang={activeLang}
               onHtmlChange={setCustomHtml}
               onCssChange={setCustomCss}
               onTranslationsChange={setTranslations}
-              onFrameworkImportsChange={setFrameworkImports}
             />
-          )}
-
-          {/* ── HTML MODE ─────────────────────────────────────── */}
-          {isHtml && (
-            <>
-              <StylePicker value={draft.bannerStyles} onChange={setBannerStyles} />
-              <JsTriggerPicker value={draft.jsTrigger} onChange={setJsTrigger} />
-              <HtmlModeEditor
-                html={draft.customHtml}
-                translations={draft.translations}
-                langs={langs}
-                activeLang={activeLang}
-                onChange={setCustomHtml}
-                onTranslationsChange={setTranslations}
-              />
-            </>
           )}
 
           {/* ── BUILDER MODE ──────────────────────────────────── */}
@@ -248,13 +210,12 @@ export function BannerEditor({ initial, onSaved }: Props) {
           )}
         </div>
 
-        {/* Preview — hidden on mobile when edit tab is active */}
-        <div
-          className="editor-preview"
-          style={{ display: mobilePanel === 'edit' ? 'none' : undefined }}
-        >
+        {/* ── Preview panel ────────────────────────────────── */}
+        <div className="editor-preview"
+          style={{ display: mobilePanel === 'edit' ? 'none' : undefined }}>
           <LivePreview draft={draft} activeLang={activeLang} />
         </div>
+
       </div>
     </div>
   );

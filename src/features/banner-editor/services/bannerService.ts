@@ -1,5 +1,5 @@
-// Path: src/features/banner-editor/services/bannerService.ts — v4
-// Purpose: All DB operations for banners. v4: customCss + frameworkImports.
+// Path: src/features/banner-editor/services/bannerService.ts — v5
+// Purpose: All DB operations for banners. v5: 2 modes only (builder | html).
 
 import { getDb }            from '@/shared/lib/db';
 import { purgeBannerCache } from '@/shared/lib/cloudflare';
@@ -29,7 +29,6 @@ function rowToBanner(row: BannerRow): Banner {
     editorMode:       (row.editor_mode as Banner['editorMode']) ?? 'builder',
     customHtml:       (row.custom_html as unknown as Record<string,string>) ?? {},
     customCss:        (row.custom_css  as unknown as Record<string,string>) ?? {},
-    frameworkImports: (row.framework_imports as unknown as Banner['frameworkImports']) ?? [],
     translations:     (row.translations as unknown as Banner['translations']) ?? {},
     supportedLangs:   row.supported_langs ?? ['en','th'],
     content:          (row.content as unknown as Banner['content']) ?? [],
@@ -88,7 +87,6 @@ export async function getBannerBySlug(slug: string): Promise<BannerPublicPayload
     editorMode:       b.editorMode,
     customHtml:       b.customHtml,
     customCss:        b.customCss,
-    frameworkImports: b.frameworkImports,
     translations:     b.translations,
     supportedLangs:   b.supportedLangs,
     content:          b.content,
@@ -110,7 +108,6 @@ export async function createBanner(input: CreateBannerInput): Promise<Banner> {
     editor_mode:       input.editorMode ?? 'builder',
     custom_html:       toJsonb(input.customHtml ?? {}),
     custom_css:        toJsonb(input.customCss ?? {}),
-    framework_imports: toJsonbArray(input.frameworkImports ?? []),
     translations:      toJsonb(input.translations ?? {}),
     supported_langs:   input.supportedLangs ?? ['en','th'],
     content:           toJsonbArray(input.content ?? []),
@@ -138,7 +135,6 @@ export async function updateBanner(id: string, input: UpdateBannerInput): Promis
   if (input.editorMode      !== undefined) changes['editorMode']      = [current.editorMode,      input.editorMode];
   if (input.customHtml      !== undefined) changes['customHtml']      = [current.customHtml,      input.customHtml];
   if (input.customCss       !== undefined) changes['customCss']       = [current.customCss,       input.customCss];
-  if (input.frameworkImports!== undefined) changes['frameworkImports']= [current.frameworkImports,input.frameworkImports];
   if (input.translations    !== undefined) changes['translations']    = [current.translations,    input.translations];
   if (input.content         !== undefined) changes['content']         = [current.content,         input.content];
   if (input.buttons         !== undefined) changes['buttons']         = [current.buttons,         input.buttons];
@@ -154,7 +150,6 @@ export async function updateBanner(id: string, input: UpdateBannerInput): Promis
     ...(input.editorMode      !== undefined && { editor_mode:       input.editorMode }),
     ...(input.customHtml      !== undefined && { custom_html:       toJsonb(input.customHtml) }),
     ...(input.customCss       !== undefined && { custom_css:        toJsonb(input.customCss) }),
-    ...(input.frameworkImports!== undefined && { framework_imports: toJsonbArray(input.frameworkImports) }),
     ...(input.translations    !== undefined && { translations:      toJsonb(input.translations) }),
     ...(input.supportedLangs  !== undefined && { supported_langs:   input.supportedLangs }),
     ...(input.content         !== undefined && { content:           toJsonbArray(input.content) }),

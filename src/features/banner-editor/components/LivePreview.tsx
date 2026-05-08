@@ -1,5 +1,5 @@
 // Path: src/features/banner-editor/components/LivePreview.tsx
-// Purpose: WYSIWYG preview — v4 with activeLang for i18n preview.
+// Purpose: WYSIWYG preview — v5 with activeLang for i18n preview (2 modes: builder/html).
 
 'use client';
 
@@ -18,7 +18,6 @@ function draftToPayload(draft: EditorDraft): BannerPublicPayload {
     editorMode: draft.editorMode,
     customHtml: draft.customHtml,
     customCss: draft.customCss,
-    frameworkImports: draft.frameworkImports,
     translations: draft.translations,
     supportedLangs: draft.supportedLangs,
     content: draft.content,
@@ -50,7 +49,7 @@ export function LivePreview({ draft, activeLang = 'en' }: Props) {
           Live Preview
           <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--tx-3)', marginLeft: 6 }}>
             [{activeLang.toUpperCase()}]
-            {draft.editorMode === 'full' ? ' — Full mode' : draft.editorMode === 'html' ? ' — HTML mode' : ' — Builder mode'}
+            {draft.editorMode === 'html' ? ' — HTML mode' : ' — Builder mode'}
           </span>
         </span>
         <div className="device-toggle">
@@ -78,11 +77,6 @@ export function LivePreview({ draft, activeLang = 'en' }: Props) {
             <a href={`/api/public/banners/${draft.slug}`} target="_blank" rel="noopener noreferrer" className="preview-link">
               Public API ↗
             </a>
-          </span>
-        )}
-        {draft.editorMode === 'full' && draft.frameworkImports.length > 0 && (
-          <span className="preview-info-item preview-info-item--warn">
-            📦 {draft.frameworkImports.length} framework import{draft.frameworkImports.length > 1 ? 's' : ''}
           </span>
         )}
         {draft.jsTrigger && (

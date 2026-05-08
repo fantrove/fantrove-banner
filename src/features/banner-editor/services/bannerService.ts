@@ -1,252 +1,221 @@
-/**
- * bannerService.ts
- *
- * Service layer สำหรับ Banner — ให้ named exports ที่โค้ดอื่นคาดหวัง
- * - ใช้ in-memory store เป็นค่าเริ่มต้น (สามารถเปลี่ยนเป็น DB client ได้)
- * - แปลง customCss / frameworkImports ให้ตรงชนิดของ BannerPublicPayload
- * - เพิ่มฟิลด์ `name` ใน Banner เพื่อรองรับโค้ด UI ที่เข้าถึง banner.name
- */
+// Path: src/features/banner-editor/services/bannerService.ts — v4
+// Purpose: All DB operations for banners. v4: customCss + frameworkImports.
 
-/* ================== Types ================== */
+import { getDb }            from '@/shared/lib/db';
+import { purgeBannerCache } from '@/shared/lib/cloudflare';
+import type {
+  Banner, BannerPublicPayload,
+  CreateBannerInput, UpdateBannerInput, AuditLog,
+} from '@/shared/types/banner';
+import type { Database } from '@/shared/types/database';
 
-export type EditorMode = 'builder' | 'html' | 'full';
+type BannerRow = Database['public']['Tables']['banners']['Row'];
 
-export interface SliderConfig {
-  enabled: boolean;
-  intervalMs?: number;
+function toJsonb(val: unknown): Record<string,unknown>|null {
+  if (val == null) return null;
+  return val as unknown as Record<string,unknown>;
+}
+function toJsonbArray(val: unknown): Record<string,unknown>[]|null {
+  if (val == null) return null;
+  return val as unknown as Record<string,unknown>[];
 }
 
-export interface BannerTranslations {
-  [lang: string]: {
-    title?: string;
-    subtitle?: string;
-  };
-}
-
-/**
- * Banner: โครงสร้างข้อมูลภายใน service/DB
- * - เพิ่ม `name` ที่ UI ใช้งาน
- * - customCss / frameworkImports ยังคงรองรับหลายรูปแบบ (string, map, array)
- */
-export interface Banner {
-  id?: string;
-  slug: string;
-  name?: string; // เพิ่มฟิลด์นี้ (UI เข้าถึง banner.name)
-  bannerStyles: string;
-  editorMode: EditorMode;
-  customHtml: Record<string, string>;
-  customCss?: string | Record<string, string> | undefined;
-  frameworkImports?: string | string[] | Record<string, string> | undefined;
-  translations: BannerTranslations;
-  supportedLangs: string[];
-  sliderConfig?: SliderConfig | null;
-  defaultLang?: string;
-  createdAt?: string;
-  updatedAt?: string;
-  published?: boolean;
-}
-
-export interface BannerPublicPayload {
-  slug: string;
-  bannerStyles: string;
-  editorMode: EditorMode;
-  customHtml: Record<string, string>;
-  customCss: string;
-  frameworkImports: string[];
-  translations: BannerTranslations;
-  supportedLangs: string[];
-  sliderConfig: SliderConfig | null;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-/* ================== Helpers ================== */
-
-function isRecordOfString(x: unknown): x is Record<string, string> {
-  return (
-    !!x &&
-    typeof x === 'object' &&
-    !Array.isArray(x) &&
-    Object.values(x as Record<string, unknown>).every((v) => typeof v === 'string')
-  );
-}
-
-function isStringArray(x: unknown): x is string[] {
-  return Array.isArray(x) && x.every((v) => typeof v === 'string');
-}
-
-function nowIso(): string {
-  return new Date().toISOString();
-}
-
-/* แปลง customCss ให้เป็น string เดียว */
-export function recordToCssString(
-  maybeRecord: string | Record<string, string> | undefined,
-  preferredLang?: string
-): string {
-  if (!maybeRecord) return '';
-  if (typeof maybeRecord === 'string') return maybeRecord;
-  if (isRecordOfString(maybeRecord)) {
-    if (preferredLang && maybeRecord[preferredLang]) return maybeRecord[preferredLang];
-    const vals = Object.values(maybeRecord);
-    return vals.length ? vals[0] : '';
-  }
-  return '';
-}
-
-/* แปลง frameworkImports เป็น string[] */
-export function frameworkImportsToArray(
-  maybe: string | string[] | Record<string, string> | undefined
-): string[] {
-  if (!maybe) return [];
-  if (isStringArray(maybe)) return maybe;
-  if (typeof maybe === 'string') {
-    return maybe
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-  }
-  if (isRecordOfString(maybe)) {
-    return Object.values(maybe).map((s) => s.trim()).filter((s) => s.length > 0);
-  }
-  return [];
-}
-
-/* แปลง Banner -> BannerPublicPayload */
-export function bannerToPublicPayload(b: Banner): BannerPublicPayload {
+function rowToBanner(row: BannerRow): Banner {
   return {
-    slug: b.slug,
-    bannerStyles: b.bannerStyles,
-    editorMode: b.editorMode,
-    customHtml: b.customHtml ?? {},
-    customCss: recordToCssString(b.customCss, b.defaultLang),
-    frameworkImports: frameworkImportsToArray(b.frameworkImports),
-    translations: b.translations ?? {},
-    supportedLangs: b.supportedLangs ?? [],
-    sliderConfig: b.sliderConfig ?? null,
-    createdAt: b.createdAt,
-    updatedAt: b.updatedAt,
+    id:               row.id,
+    slug:             row.slug,
+    name:             row.name,
+    bannerStyles:     row.banner_styles ?? '',
+    editorMode:       (row.editor_mode as Banner['editorMode']) ?? 'builder',
+    customHtml:       (row.custom_html as unknown as Record<string,string>) ?? {},
+    customCss:        (row.custom_css  as unknown as Record<string,string>) ?? {},
+    frameworkImports: (row.framework_imports as unknown as Banner['frameworkImports']) ?? [],
+    translations:     (row.translations as unknown as Banner['translations']) ?? {},
+    supportedLangs:   row.supported_langs ?? ['en','th'],
+    content:          (row.content as unknown as Banner['content']) ?? [],
+    buttons:          (row.buttons as unknown as Banner['buttons']) ?? [],
+    buttonConfig:     (row.button_config as unknown as Banner['buttonConfig']) ?? null,
+    imageAssets:      (row.image_assets as unknown as Banner['imageAssets']) ?? null,
+    jsTrigger:        (row.js_trigger as Banner['jsTrigger']) ?? null,
+    countdownConfig:  (row.countdown_config as unknown as Banner['countdownConfig']) ?? null,
+    sliderConfig:     (row.slider_config as unknown as Banner['sliderConfig']) ?? null,
+    isPublished:      row.is_published,
+    allowedDomains:   row.allowed_domains,
+    createdAt:        row.created_at,
+    updatedAt:        row.updated_at,
+    publishedAt:      row.published_at ?? null,
   };
 }
 
-export function draftToPayload(draft: Banner): BannerPublicPayload {
-  return bannerToPublicPayload(draft);
+async function writeAuditLog(
+  bannerId: string,
+  action: AuditLog['action'],
+  changes: Record<string,[unknown,unknown]>
+): Promise<void> {
+  const db = getDb();
+  const { error } = await db.from('banner_audit_logs').insert({
+    banner_id: bannerId, action, changes: changes as Record<string,unknown>,
+  });
+  if (error) throw new Error(`[bannerService] Audit log failed: ${error.message}`);
 }
 
-/* ================== In-memory store (placeholder) ================== */
-
-const bannersStore = new Map<string, Banner>();
-
-function makeId(): string {
-  return Math.random().toString(36).slice(2, 10);
-}
-
-/* ================== CRUD & publish functions ================== */
-
-/** คืนรายการ banner ทั้งหมด (ไม่กรอง) */
 export async function listBanners(): Promise<Banner[]> {
-  return Array.from(bannersStore.values());
+  const db = getDb();
+  const { data, error } = await db.from('banners').select('*').order('created_at',{ascending:false});
+  if (error) throw new Error(`[bannerService] listBanners: ${error.message}`);
+  return (data ?? []).map(rowToBanner);
 }
 
-/** คืน banner โดย id (หรือ null) */
-export async function getBannerById(id: string): Promise<Banner | null> {
-  return bannersStore.get(id) ?? null;
+export async function getBannerById(id: string): Promise<Banner|null> {
+  const db = getDb();
+  const { data, error } = await db.from('banners').select('*').eq('id',id).single();
+  if (error?.code === 'PGRST116') return null;
+  if (error) throw new Error(`[bannerService] getBannerById: ${error.message}`);
+  return data ? rowToBanner(data) : null;
 }
 
-/** คืน banner โดย slug (หรือ null) */
-export async function getBannerBySlug(slug: string): Promise<Banner | null> {
-  for (const b of bannersStore.values()) {
-    if (b.slug === slug) return b;
-  }
-  return null;
-}
-
-/**
- * สร้าง banner ใหม่
- * - ตั้งค่า `name` เป็น payload.name หากมี, ถ้าไม่มีก็ใช้ slug เป็นค่าเริ่มต้น
- */
-export async function createBanner(payload: Partial<Banner>): Promise<Banner> {
-  const id = payload.id ?? makeId();
-  const now = nowIso();
-  const banner: Banner = {
-    id,
-    slug: payload.slug ?? `untitled-${id}`,
-    name: payload.name ?? payload.slug ?? `untitled-${id}`, // ตั้งชื่อเริ่มต้น
-    bannerStyles: payload.bannerStyles ?? '',
-    editorMode: payload.editorMode ?? 'builder',
-    customHtml: payload.customHtml ?? {},
-    customCss: payload.customCss,
-    frameworkImports: payload.frameworkImports,
-    translations: payload.translations ?? {},
-    supportedLangs: payload.supportedLangs ?? [],
-    sliderConfig: payload.sliderConfig ?? null,
-    defaultLang: payload.defaultLang,
-    createdAt: payload.createdAt ?? now,
-    updatedAt: payload.updatedAt ?? now,
-    published: payload.published ?? false,
+export async function getBannerBySlug(slug: string): Promise<BannerPublicPayload|null> {
+  const db = getDb();
+  const { data, error } = await db.from('banners')
+    .select('*').eq('slug',slug).eq('is_published',true).single();
+  if (error?.code === 'PGRST116') return null;
+  if (error) throw new Error(`[bannerService] getBannerBySlug: ${error.message}`);
+  if (!data) return null;
+  const b = rowToBanner(data);
+  return {
+    slug:             b.slug,
+    bannerStyles:     b.bannerStyles,
+    editorMode:       b.editorMode,
+    customHtml:       b.customHtml,
+    customCss:        b.customCss,
+    frameworkImports: b.frameworkImports,
+    translations:     b.translations,
+    supportedLangs:   b.supportedLangs,
+    content:          b.content,
+    buttons:          b.buttons,
+    buttonConfig:     b.buttonConfig,
+    imageAssets:      b.imageAssets,
+    jsTrigger:        b.jsTrigger,
+    countdownConfig:  b.countdownConfig,
+    sliderConfig:     b.sliderConfig,
   };
-  bannersStore.set(id, banner);
+}
+
+export async function createBanner(input: CreateBannerInput): Promise<Banner> {
+  const db = getDb();
+  const slug = input.slug.toLowerCase().replace(/[^a-z0-9-]/g,'-');
+  const { data, error } = await db.from('banners').insert({
+    slug, name: input.name,
+    banner_styles:     input.bannerStyles ?? '',
+    editor_mode:       input.editorMode ?? 'builder',
+    custom_html:       toJsonb(input.customHtml ?? {}),
+    custom_css:        toJsonb(input.customCss ?? {}),
+    framework_imports: toJsonbArray(input.frameworkImports ?? []),
+    translations:      toJsonb(input.translations ?? {}),
+    supported_langs:   input.supportedLangs ?? ['en','th'],
+    content:           toJsonbArray(input.content ?? []),
+    buttons:           toJsonbArray(input.buttons ?? []),
+    button_config:     toJsonb(input.buttonConfig),
+    image_assets:      toJsonb(input.imageAssets),
+    js_trigger:        input.jsTrigger ?? null,
+    countdown_config:  toJsonb(input.countdownConfig),
+    slider_config:     toJsonb(input.sliderConfig),
+    allowed_domains:   input.allowedDomains ?? [],
+  }).select().single();
+  if (error) throw new Error(`[bannerService] createBanner: ${error.message}`);
+  if (!data)  throw new Error('[bannerService] createBanner: no data');
+  await writeAuditLog(data.id, 'created', {});
+  return rowToBanner(data);
+}
+
+export async function updateBanner(id: string, input: UpdateBannerInput): Promise<Banner> {
+  const db      = getDb();
+  const current = await getBannerById(id);
+  if (!current) throw new Error(`[bannerService] updateBanner: not found ${id}`);
+
+  const changes: Record<string,[unknown,unknown]> = {};
+  if (input.bannerStyles    !== undefined) changes['bannerStyles']    = [current.bannerStyles,    input.bannerStyles];
+  if (input.editorMode      !== undefined) changes['editorMode']      = [current.editorMode,      input.editorMode];
+  if (input.customHtml      !== undefined) changes['customHtml']      = [current.customHtml,      input.customHtml];
+  if (input.customCss       !== undefined) changes['customCss']       = [current.customCss,       input.customCss];
+  if (input.frameworkImports!== undefined) changes['frameworkImports']= [current.frameworkImports,input.frameworkImports];
+  if (input.translations    !== undefined) changes['translations']    = [current.translations,    input.translations];
+  if (input.content         !== undefined) changes['content']         = [current.content,         input.content];
+  if (input.buttons         !== undefined) changes['buttons']         = [current.buttons,         input.buttons];
+  if (input.jsTrigger       !== undefined) changes['jsTrigger']       = [current.jsTrigger,       input.jsTrigger];
+  if (input.countdownConfig !== undefined) changes['countdownConfig'] = [current.countdownConfig, input.countdownConfig];
+  if (input.sliderConfig    !== undefined) changes['sliderConfig']    = [current.sliderConfig,    input.sliderConfig];
+
+  await writeAuditLog(id, 'updated', changes);
+
+  const { data, error } = await db.from('banners').update({
+    ...(input.name               && { name:              input.name }),
+    ...(input.bannerStyles    !== undefined && { banner_styles:     input.bannerStyles }),
+    ...(input.editorMode      !== undefined && { editor_mode:       input.editorMode }),
+    ...(input.customHtml      !== undefined && { custom_html:       toJsonb(input.customHtml) }),
+    ...(input.customCss       !== undefined && { custom_css:        toJsonb(input.customCss) }),
+    ...(input.frameworkImports!== undefined && { framework_imports: toJsonbArray(input.frameworkImports) }),
+    ...(input.translations    !== undefined && { translations:      toJsonb(input.translations) }),
+    ...(input.supportedLangs  !== undefined && { supported_langs:   input.supportedLangs }),
+    ...(input.content         !== undefined && { content:           toJsonbArray(input.content) }),
+    ...(input.buttons         !== undefined && { buttons:           toJsonbArray(input.buttons) }),
+    ...(input.buttonConfig    !== undefined && { button_config:     toJsonb(input.buttonConfig) }),
+    ...(input.imageAssets     !== undefined && { image_assets:      toJsonb(input.imageAssets) }),
+    ...(input.jsTrigger       !== undefined && { js_trigger:        input.jsTrigger }),
+    ...(input.countdownConfig !== undefined && { countdown_config:  toJsonb(input.countdownConfig) }),
+    ...(input.sliderConfig    !== undefined && { slider_config:     toJsonb(input.sliderConfig) }),
+    ...(input.allowedDomains  !== undefined && { allowed_domains:   input.allowedDomains }),
+  }).eq('id',id).select().single();
+  if (error) throw new Error(`[bannerService] updateBanner: ${error.message}`);
+  if (!data)  throw new Error('[bannerService] updateBanner: no data');
+  return rowToBanner(data);
+}
+
+export async function publishBanner(id: string): Promise<Banner> {
+  const db = getDb();
+  const current = await getBannerById(id);
+  if (!current) throw new Error(`publishBanner: not found ${id}`);
+  await writeAuditLog(id,'published',{isPublished:[false,true],publishedAt:[current.publishedAt,new Date().toISOString()]});
+  const {data,error} = await db.from('banners')
+    .update({is_published:true,published_at:new Date().toISOString()}).eq('id',id).select().single();
+  if (error) throw new Error(`publishBanner: ${error.message}`);
+  if (!data)  throw new Error('publishBanner: no data');
+  await purgeBannerCache(current.slug);
+  return rowToBanner(data);
+}
+
+export async function unpublishBanner(id: string): Promise<Banner> {
+  const db = getDb();
+  await writeAuditLog(id,'unpublished',{isPublished:[true,false]});
+  const {data,error} = await db.from('banners')
+    .update({is_published:false}).eq('id',id).select().single();
+  if (error) throw new Error(`unpublishBanner: ${error.message}`);
+  if (!data)  throw new Error('unpublishBanner: no data');
+  const banner = rowToBanner(data);
+  await purgeBannerCache(banner.slug);
   return banner;
 }
 
-/** อัปเดต banner (partial) */
-export async function updateBanner(id: string, patch: Partial<Banner>): Promise<Banner | null> {
-  const existing = bannersStore.get(id);
-  if (!existing) return null;
-  const updated: Banner = {
-    ...existing,
-    ...patch,
-    id: existing.id,
-    // ถ้า patch ส่ง name มา ให้ใช้ patch.name; ถ้าไม่มีก็เก็บ existing.name ไว้
-    name: patch.name ?? existing.name,
-    updatedAt: nowIso(),
-  };
-  bannersStore.set(id, updated);
-  return updated;
+export async function deleteBanner(id: string): Promise<void> {
+  const db = getDb();
+  const current = await getBannerById(id);
+  if (!current) throw new Error(`deleteBanner: not found ${id}`);
+  await writeAuditLog(id,'deleted',{slug:[current.slug,null],name:[current.name,null]});
+  const {error} = await db.from('banners').delete().eq('id',id);
+  if (error) throw new Error(`deleteBanner: ${error.message}`);
+  await purgeBannerCache(current.slug);
 }
 
-/** ลบ banner ตาม id */
-export async function deleteBanner(id: string): Promise<boolean> {
-  return bannersStore.delete(id);
+export async function getAuditLogs(bannerId: string): Promise<AuditLog[]> {
+  const db = getDb();
+  const {data,error} = await db.from('banner_audit_logs').select('*')
+    .eq('banner_id',bannerId).order('created_at',{ascending:false}).limit(50);
+  if (error) throw new Error(`getAuditLogs: ${error.message}`);
+  return (data??[]).map(row=>({
+    id:        row.id,
+    bannerId:  row.banner_id ?? '',
+    action:    row.action as AuditLog['action'],
+    changes:   (row.changes as AuditLog['changes']) ?? {},
+    createdAt: row.created_at,
+  }));
 }
-
-/** ดึง audit logs — placeholder คืน array ว่าง (ปรับเชื่อมกับระบบจริงได้) */
-export async function getAuditLogs(id: string): Promise<Array<{ when: string; by?: string; action: string; meta?: any }>> {
-  return [];
-}
-
-/* ================== Publishing ================== */
-
-export async function publishBanner(id: string): Promise<BannerPublicPayload | null> {
-  const b = bannersStore.get(id);
-  if (!b) return null;
-  const updated = { ...b, published: true, updatedAt: nowIso() };
-  bannersStore.set(id, updated);
-  return bannerToPublicPayload(updated);
-}
-
-export async function unpublishBanner(id: string): Promise<boolean> {
-  const b = bannersStore.get(id);
-  if (!b) return false;
-  const updated = { ...b, published: false, updatedAt: nowIso() };
-  bannersStore.set(id, updated);
-  return true;
-}
-
-/* ================== Default export (for convenience) ================== */
-
-export default {
-  listBanners,
-  getBannerById,
-  getBannerBySlug,
-  createBanner,
-  updateBanner,
-  deleteBanner,
-  getAuditLogs,
-  publishBanner,
-  unpublishBanner,
-  bannerToPublicPayload,
-  draftToPayload,
-  recordToCssString,
-  frameworkImportsToArray,
-};

@@ -452,10 +452,7 @@ body {
   padding: 2px;
 }
 
-/* Hide mode toggle label on very small screens */
-@media (max-width: 479px) {
-  .mode-toggle { display: none; }
-}
+/* mode-toggle always visible — 2 modes only */
 
 .mode-btn {
   background: none;
@@ -797,7 +794,8 @@ body {
 .mode-chip--full { background: #f0fdf4; color: #166534; border-color: #bbf7d0; }
 .mode-chip--html { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
 
-/* ── Mobile mode toggle (mode select dropdown on small screens) ─ */
+/* ── Mode switcher — select on tiny screens, toggle buttons on 480px+ ── */
+/* select: shown < 480px */
 .mode-select-mobile {
   display: block;
   font-size: 13px;
@@ -809,10 +807,17 @@ body {
   color: var(--tx-1);
   cursor: pointer;
   min-height: 38px;
+  -webkit-appearance: none;
+}
+
+/* toggle buttons hidden < 480px — select takes over */
+.mode-toggle-inline {
+  display: none;
 }
 
 @media (min-width: 480px) {
   .mode-select-mobile { display: none; }
+  .mode-toggle-inline { display: flex; }
 }
 
 /* ── Utility ─────────────────────────────────────────────────── */

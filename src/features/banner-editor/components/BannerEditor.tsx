@@ -61,7 +61,18 @@ export function BannerEditor({ initial, onSaved }: Props) {
           )}
           {isDirty && <span className="unsaved-dot" title="Unsaved">●</span>}
 
-          {/* Mode toggle */}
+          {/* Mode toggle — select on tiny screens, toggle buttons on larger */}
+          <select
+            className="mode-select-mobile"
+            value={draft.editorMode}
+            onChange={e => setEditorMode(e.target.value as EditorMode)}
+            aria-label="Editor mode"
+          >
+            {(['builder','html'] as EditorMode[]).map(m => (
+              <option key={m} value={m}>{MODE_INFO[m].label}</option>
+            ))}
+          </select>
+
           <div className="mode-toggle mode-toggle-inline">
             {(['builder','html'] as EditorMode[]).map(m => (
               <button key={m} type="button"
